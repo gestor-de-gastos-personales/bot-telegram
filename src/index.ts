@@ -161,6 +161,36 @@ bot.on('message:text', async (ctx) => {
   }
 });
 
+// 5. Manejador de Fotos (Comprobantes / Tickets)
+bot.on('message:photo', async (ctx) => {
+  try {
+    await ctx.reply('🧾 Analizando tu comprobante, un momento...');
+
+    // Se usa la foto de mayor resolución disponible.
+    const foto = ctx.message.photo[ctx.message.photo.length - 1];
+    if (!foto) {
+      return ctx.reply('⚠️ No pude leer la imagen enviada. Probá de nuevo.');
+    }
+
+    const archivo = await ctx.api.getFile(foto.file_id);
+
+    const descarga = await fetch(
+      `https://api.telegram.org/file/bot${token}/${archivo.file_path}`,
+    );
+
+    if (!descarga.ok) {
+      throw new Error(`no se pudo descargar la imagen (${descarga.status})`);
+    }
+
+    const buffer = Buffer.from(await descarga.arrayBuffer());
+    const gasto = await IaService.analizarImagen(buffer, 'comprobante.jpg');
+
+    await pedirConfirmacion(ctx, gasto);
+  } catch (error) {
+    await ctx.reply(`⚠️ ${mensajeDeError(error)}`);
+  }
+});
+
 // Iniciar bot con log activo en consola
 console.log('🚀 Iniciando servicio de Telegram Bot...');
 bot.start({
