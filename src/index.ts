@@ -1,77 +1,222 @@
 // bot-telegram/src/index.ts
 import 'dotenv/config';
-import { Bot, session, InlineKeyboard } from 'grammy';
+import { Bot, session } from 'grammy';
+import type { Context, SessionFlavor } from 'grammy';
+import type { PhotoSize } from 'grammy/types';
 import { AuthService } from './services/auth.service.js';
 import { GastosService } from './services/gastos.service.js';
 import { IaService } from './services/ia.service.js';
 import type { GastoAnalizado } from './services/ia.service.js';
-import { construirVistaPrevia, mensajeDeError } from './utils/format.js';
+import { logger } from './utils/logger.js';
+import { crearSesionInicial } from './state/session.js';
+import type { SessionData } from './state/session.js';
+import {
+  capturarCredenciales,
+  capturarEmail,
+  iniciarAutenticacion,
+} from './auth.js';
+import type { CredencialesCapturadas } from './auth.js';
+import { vistaBienvenida } from './views/bienvenida.js';
+import {
+  MENSAJE_CUENTA_CREADA,
+  MENSAJE_CUENTA_VINCULADA,
+  MENSAJE_SESION_PERDIDA,
+  mensajeErrorAutenticacion,
+} from './views/autenticacion.js';
+import {
+  MENSAJE_GASTO_INVALIDO,
+  construirVistaPrevia,
+  tecladoConfirmacion,
+} from './views/gasto-preview.js';
+import {
+  MENSAJE_CANCELADO,
+  MENSAJE_GASTO_GUARDADO,
+  MENSAJE_SIN_PENDIENTE,
+  mensajeErrorGuardado,
+} from './views/confirmacion.js';
+import {
+  MENSAJE_ANALIZANDO,
+  MENSAJE_IMAGEN_ILEGIBLE,
+  mensajeErrorComprobante,
+} from './views/comprobante.js';
+import { mensajeDeError, mensajeErrorGenerico } from './views/errores.js';
+import { MENSAJE_ERROR_RESUMEN, formatearResumen } from './views/resumen.js';
+import { MENSAJE_AYUDA } from './views/ayuda.js';
+
+type BotContexto = Context & SessionFlavor<SessionData>;
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 if (!token) {
   throw new Error('TELEGRAM_BOT_TOKEN no está definido en el archivo .env');
 }
 
-interface SessionData {
-  step?: 'AWAITING_EMAIL' | 'AWAITING_PASSWORD';
-  email?: string;
-  accion?: 'LOGIN' | 'REGISTER';
-  pendingExpense?: GastoAnalizado;
-}
+const bot = new Bot<BotContexto>(token);
 
-const bot = new Bot<any>(token);
-
-bot.use(session({ initial: (): SessionData => ({}) }));
+bot.use(session({ initial: crearSesionInicial }));
 
 /**
  * Muestra la vista previa del gasto con los botones de confirmación.
  * Si el gasto no es utilizable, avisa al usuario con un ejemplo.
  */
-async function pedirConfirmacion(ctx: any, gasto: GastoAnalizado) {
+async function pedirConfirmacion(ctx: BotContexto, gasto: GastoAnalizado) {
   if (gasto.monto === null || Number.isNaN(gasto.monto)) {
-    return ctx.reply(
-      '🤖 No pude identificar un gasto válido. Ejemplo: "Gasté 200 en un colectivo"',
-    );
+    return ctx.reply(MENSAJE_GASTO_INVALIDO);
   }
 
   ctx.session.pendingExpense = gasto;
 
-  const keyboard = new InlineKeyboard()
-    .text('✅ Confirmar y Guardar', 'confirm_gasto')
-    .text('❌ Cancelar', 'cancel_gasto');
-
   return ctx.reply(construirVistaPrevia(gasto), {
     parse_mode: 'HTML',
-    reply_markup: keyboard,
+    reply_markup: tecladoConfirmacion(),
   });
 }
 
-// 1. Comando /start
+/**
+ * Completa el login o registro una vez que el usuario envió sus credenciales.
+ */
+async function vincularCuenta(
+  ctx: BotContexto,
+  credenciales: CredencialesCapturadas,
+  telegramId: string,
+  nombre: string,
+) {
+  const datos = {
+    email: credenciales.email,
+    password: credenciales.password,
+    telegramId,
+    nombre,
+  };
+
+  try {
+    if (credenciales.accion === 'LOGIN') {
+      await AuthService.vincularTelegram(datos);
+      await ctx.reply(MENSAJE_CUENTA_VINCULADA);
+    } else {
+      await AuthService.registrarTelegram(datos);
+      await ctx.reply(MENSAJE_CUENTA_CREADA);
+    }
+  } catch (error) {
+    await ctx.reply(mensajeErrorAutenticacion(mensajeDeError(error)));
+  }
+}
+
+/**
+ * Atiende los pasos de email/contraseña del flujo de autenticación.
+ * Devuelve true cuando el mensaje ya fue consumido por este flujo.
+ */
+async function procesarAutenticacion(
+  ctx: BotContexto,
+  texto: string,
+  telegramId: string,
+  nombre: string,
+): Promise<boolean> {
+  if (ctx.session.step === 'AWAITING_EMAIL') {
+    await ctx.reply(capturarEmail(ctx.session, texto));
+    return true;
+  }
+
+  if (ctx.session.step !== 'AWAITING_PASSWORD') {
+    return false;
+  }
+
+  const credenciales = capturarCredenciales(ctx.session, texto);
+
+  if (!credenciales) {
+    await ctx.reply(MENSAJE_SESION_PERDIDA);
+    return true;
+  }
+
+  await vincularCuenta(ctx, credenciales, telegramId, nombre);
+  return true;
+}
+
+/** Analiza un mensaje de texto y pide confirmación del gasto detectado. */
+async function analizarGastoTexto(ctx: BotContexto, texto: string) {
+  try {
+    const gasto = await IaService.analizarTexto(texto);
+    await pedirConfirmacion(ctx, gasto);
+  } catch (error) {
+    await ctx.reply(mensajeErrorGenerico(error));
+  }
+}
+
+/** Descarga la imagen del comprobante desde los servidores de Telegram. */
+async function descargarComprobante(fileId: string): Promise<Buffer> {
+  const archivo = await bot.api.getFile(fileId);
+  const url = `https://api.telegram.org/file/bot${token}/${archivo.file_path}`;
+  const descarga = await fetch(url);
+
+  if (!descarga.ok) {
+    throw new Error(`no se pudo descargar la imagen (${descarga.status})`);
+  }
+
+  return Buffer.from(await descarga.arrayBuffer());
+}
+
+/** Analiza una foto de comprobante y pide confirmación del gasto detectado. */
+async function procesarFoto(
+  ctx: BotContexto,
+  foto: PhotoSize | undefined,
+) {
+  try {
+    await ctx.reply(MENSAJE_ANALIZANDO);
+
+    if (!foto) {
+      await ctx.reply(MENSAJE_IMAGEN_ILEGIBLE);
+      return;
+    }
+
+    const buffer = await descargarComprobante(foto.file_id);
+    const gasto = await IaService.analizarImagen(buffer, 'comprobante.jpg');
+    await pedirConfirmacion(ctx, gasto);
+  } catch (error) {
+    await ctx.reply(mensajeErrorComprobante(mensajeDeError(error)));
+  }
+}
+
+// 1. Comandos de bienvenida y ayuda
 bot.command('start', async (ctx) => {
-  ctx.session = {};
-  await ctx.reply(
-    '👋 ¡Bienvenido a Mangos!\n\nPara comenzar a registrar tus gastos, identificáte o creá tu cuenta:',
-    {
-      reply_markup: new InlineKeyboard()
-        .text('🔑 Iniciar Sesión', 'auth_login')
-        .text('📝 Registrarme', 'auth_register'),
-    },
-  );
+  ctx.session = crearSesionInicial();
+  const vista = vistaBienvenida();
+  await ctx.reply(vista.texto, { reply_markup: vista.teclado });
+});
+
+bot.command('ayuda', async (ctx) => {
+  await ctx.reply(MENSAJE_AYUDA, { parse_mode: 'HTML' });
+});
+
+bot.command('resumen', async (ctx) => {
+  const usuario = ctx.from;
+  if (!usuario) {
+    return;
+  }
+
+  try {
+    const resumen = await GastosService.getSummary(String(usuario.id));
+    await ctx.reply(formatearResumen(resumen), { parse_mode: 'HTML' });
+  } catch (error) {
+    logger.warn(
+      {
+        telegramId: String(usuario.id),
+        detalle: mensajeDeError(error),
+      },
+      'No se pudo obtener el resumen de gastos',
+    );
+    await ctx.reply(MENSAJE_ERROR_RESUMEN);
+  }
 });
 
 // 2. Callbacks de Autenticación
 bot.callbackQuery('auth_login', async (ctx) => {
-  ctx.session.accion = 'LOGIN';
-  ctx.session.step = 'AWAITING_EMAIL';
+  const mensaje = iniciarAutenticacion(ctx.session, 'LOGIN');
   await ctx.answerCallbackQuery();
-  await ctx.reply('📧 Por favor, ingresá tu email:');
+  await ctx.reply(mensaje);
 });
 
 bot.callbackQuery('auth_register', async (ctx) => {
-  ctx.session.accion = 'REGISTER';
-  ctx.session.step = 'AWAITING_EMAIL';
+  const mensaje = iniciarAutenticacion(ctx.session, 'REGISTER');
   await ctx.answerCallbackQuery();
-  await ctx.reply('📧 Por favor, ingresá el email para tu nueva cuenta:');
+  await ctx.reply(mensaje);
 });
 
 // 3. Callbacks de Confirmación de Gastos
@@ -81,7 +226,7 @@ bot.callbackQuery('confirm_gasto', async (ctx) => {
   const telegramId = String(ctx.from.id);
 
   if (!gasto) {
-    return ctx.reply('⚠️ No hay ningún gasto pendiente por confirmar.');
+    return ctx.reply(MENSAJE_SIN_PENDIENTE);
   }
 
   try {
@@ -93,108 +238,50 @@ bot.callbackQuery('confirm_gasto', async (ctx) => {
       telegramId,
     });
 
-    ctx.session.pendingExpense = undefined;
-    await ctx.reply('✅ ¡Gasto registrado e impactado en tu cuenta con éxito!');
+    delete ctx.session.pendingExpense;
+    await ctx.reply(MENSAJE_GASTO_GUARDADO);
   } catch (error) {
-    await ctx.reply(`❌ No se pudo guardar el gasto en api-gastos:\n${mensajeDeError(error)}`);
+    await ctx.reply(mensajeErrorGuardado(mensajeDeError(error)));
   }
 });
 
 bot.callbackQuery('cancel_gasto', async (ctx) => {
   await ctx.answerCallbackQuery();
-  ctx.session.pendingExpense = undefined;
-  await ctx.reply('🚫 Registro cancelado.');
+  delete ctx.session.pendingExpense;
+  await ctx.reply(MENSAJE_CANCELADO);
 });
 
 // 4. Manejador de Mensajes de Texto
 bot.on('message:text', async (ctx) => {
-  const telegramId = String(ctx.from?.id);
+  const telegramId = String(ctx.from.id);
+  const nombre = ctx.from.first_name || 'Usuario Telegram';
+  const texto = ctx.message.text;
 
-  // Paso 1: Capturar Email
-  if (ctx.session.step === 'AWAITING_EMAIL') {
-    ctx.session.email = ctx.message.text.trim();
-    ctx.session.step = 'AWAITING_PASSWORD';
-    return ctx.reply('🔑 Ahora ingresá tu contraseña:');
-  }
+  const consumido = await procesarAutenticacion(
+    ctx,
+    texto,
+    telegramId,
+    nombre,
+  );
 
-  // Paso 2: Capturar Contraseña y Autenticar
-  if (ctx.session.step === 'AWAITING_PASSWORD') {
-    const password = ctx.message.text.trim();
-    const email = ctx.session.email;
-    const accion = ctx.session.accion;
-
-    ctx.session.step = undefined;
-
-    try {
-      const datos = {
-        email: email ?? '',
-        password,
-        telegramId,
-        nombre: ctx.from?.first_name || 'Usuario Telegram',
-      };
-
-      if (accion === 'LOGIN') {
-        await AuthService.vincularTelegram(datos);
-        await ctx.reply(
-          '✅ ¡Cuenta vinculada exitosamente! Ya podés registrar tus gastos enviándome mensajes.',
-        );
-      } else {
-        await AuthService.registrarTelegram(datos);
-        await ctx.reply(
-          '✅ ¡Cuenta creada y vinculada con éxito! Ya podés registrar tus gastos enviándome mensajes.',
-        );
-      }
-    } catch (error) {
-      await ctx.reply(
-        `❌ Error: ${mensajeDeError(error)}. Reintentá con /start`,
-      );
-    }
-    return;
-  }
-
-  // Paso 3: Análisis de Gastos mediante Servicio IA
-  try {
-    const gasto = await IaService.analizarTexto(ctx.message.text);
-    await pedirConfirmacion(ctx, gasto);
-  } catch (error) {
-    await ctx.reply(`⚠️ ${mensajeDeError(error)}`);
+  if (!consumido) {
+    await analizarGastoTexto(ctx, texto);
   }
 });
 
 // 5. Manejador de Fotos (Comprobantes / Tickets)
 bot.on('message:photo', async (ctx) => {
-  try {
-    await ctx.reply('🧾 Analizando tu comprobante, un momento...');
-
-    // Se usa la foto de mayor resolución disponible.
-    const foto = ctx.message.photo[ctx.message.photo.length - 1];
-    if (!foto) {
-      return ctx.reply('⚠️ No pude leer la imagen enviada. Probá de nuevo.');
-    }
-
-    const archivo = await ctx.api.getFile(foto.file_id);
-
-    const descarga = await fetch(
-      `https://api.telegram.org/file/bot${token}/${archivo.file_path}`,
-    );
-
-    if (!descarga.ok) {
-      throw new Error(`no se pudo descargar la imagen (${descarga.status})`);
-    }
-
-    const buffer = Buffer.from(await descarga.arrayBuffer());
-    const gasto = await IaService.analizarImagen(buffer, 'comprobante.jpg');
-
-    await pedirConfirmacion(ctx, gasto);
-  } catch (error) {
-    await ctx.reply(`⚠️ ${mensajeDeError(error)}`);
-  }
+  await procesarFoto(ctx, ctx.message.photo.at(-1));
 });
 
-// Iniciar bot con log activo en consola
-console.log('🚀 Iniciando servicio de Telegram Bot...');
+// Iniciar bot con logging estructurado
+logger.info('Iniciando servicio de Telegram Bot');
+
 bot.start({
   onStart: (info) => {
-    console.log(`✅ Bot @${info.username} iniciado con éxito y listo para recibir mensajes.`);
+    logger.info(
+      { username: info.username },
+      'Bot iniciado y listo para recibir mensajes',
+    );
   },
 });

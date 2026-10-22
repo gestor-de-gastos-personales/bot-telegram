@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "repository": {
     "type": "git",
@@ -20,11 +22,14 @@
   "homepage": "https://github.com/gestor-de-gastos-personales/bot-telegram#readme",
   "dependencies": {
     "dotenv": "^18.0.8",
-    "grammy": "^1.46.0"
+    "grammy": "^1.46.0",
+    "pino": "^10.4.0",
+    "pino-pretty": "^13.2.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
   }
 }
