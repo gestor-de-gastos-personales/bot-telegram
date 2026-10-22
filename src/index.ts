@@ -1,12 +1,11 @@
 // bot-telegram/src/index.ts
 import 'dotenv/config';
-import { Bot, session, InlineKeyboard } from 'grammy';
+import { Bot, session } from 'grammy';
 import type { Context, SessionFlavor } from 'grammy';
 import { AuthService } from './services/auth.service.js';
 import { GastosService } from './services/gastos.service.js';
 import { IaService } from './services/ia.service.js';
 import type { GastoAnalizado } from './services/ia.service.js';
-import { construirVistaPrevia, mensajeDeError } from './utils/format.js';
 import { logger } from './utils/logger.js';
 import { crearSesionInicial } from './state/session.js';
 import type { SessionData } from './state/session.js';
@@ -15,6 +14,32 @@ import {
   capturarEmail,
   iniciarAutenticacion,
 } from './auth.js';
+import { vistaBienvenida } from './views/bienvenida.js';
+import {
+  MENSAJE_CUENTA_CREADA,
+  MENSAJE_CUENTA_VINCULADA,
+  MENSAJE_SESION_PERDIDA,
+  mensajeErrorAutenticacion,
+} from './views/autenticacion.js';
+import {
+  MENSAJE_GASTO_INVALIDO,
+  construirVistaPrevia,
+  tecladoConfirmacion,
+} from './views/gasto-preview.js';
+import {
+  MENSAJE_CANCELADO,
+  MENSAJE_GASTO_GUARDADO,
+  MENSAJE_SIN_PENDIENTE,
+  mensajeErrorGuardado,
+} from './views/confirmacion.js';
+import {
+  MENSAJE_ANALIZANDO,
+  MENSAJE_IMAGEN_ILEGIBLE,
+  mensajeErrorComprobante,
+} from './views/comprobante.js';
+import { mensajeDeError, mensajeErrorGenerico } from './views/errores.js';
+import { MENSAJE_ERROR_RESUMEN, formatearResumen } from './views/resumen.js';
+import { MENSAJE_AYUDA } from './views/ayuda.js';
 
 type BotContexto = Context & SessionFlavor<SessionData>;
 
@@ -33,34 +58,44 @@ bot.use(session({ initial: crearSesionInicial }));
  */
 async function pedirConfirmacion(ctx: BotContexto, gasto: GastoAnalizado) {
   if (gasto.monto === null || Number.isNaN(gasto.monto)) {
-    return ctx.reply(
-      '🤖 No pude identificar un gasto válido. Ejemplo: "Gasté 200 en un colectivo"',
-    );
+    return ctx.reply(MENSAJE_GASTO_INVALIDO);
   }
 
   ctx.session.pendingExpense = gasto;
 
-  const keyboard = new InlineKeyboard()
-    .text('✅ Confirmar y Guardar', 'confirm_gasto')
-    .text('❌ Cancelar', 'cancel_gasto');
-
   return ctx.reply(construirVistaPrevia(gasto), {
     parse_mode: 'HTML',
-    reply_markup: keyboard,
+    reply_markup: tecladoConfirmacion(),
   });
 }
 
-// 1. Comando /start
+// 1. Comandos de bienvenida y ayuda
 bot.command('start', async (ctx) => {
   ctx.session = crearSesionInicial();
-  await ctx.reply(
-    '👋 ¡Bienvenido a Mangos!\n\nPara comenzar a registrar tus gastos, identificáte o creá tu cuenta:',
-    {
-      reply_markup: new InlineKeyboard()
-        .text('🔑 Iniciar Sesión', 'auth_login')
-        .text('📝 Registrarme', 'auth_register'),
-    },
-  );
+  const vista = vistaBienvenida();
+  await ctx.reply(vista.texto, { reply_markup: vista.teclado });
+});
+
+bot.command('ayuda', async (ctx) => {
+  await ctx.reply(MENSAJE_AYUDA, { parse_mode: 'HTML' });
+});
+
+bot.command('resumen', async (ctx) => {
+  const usuario = ctx.from;
+  if (!usuario) {
+    return;
+  }
+
+  try {
+    const resumen = await GastosService.getSummary(String(usuario.id));
+    await ctx.reply(formatearResumen(resumen), { parse_mode: 'HTML' });
+  } catch (error) {
+    logger.warn('No se pudo obtener el resumen de gastos', {
+      telegramId: String(usuario.id),
+      detalle: mensajeDeError(error),
+    });
+    await ctx.reply(MENSAJE_ERROR_RESUMEN);
+  }
 });
 
 // 2. Callbacks de Autenticación
@@ -83,7 +118,7 @@ bot.callbackQuery('confirm_gasto', async (ctx) => {
   const telegramId = String(ctx.from.id);
 
   if (!gasto) {
-    return ctx.reply('⚠️ No hay ningún gasto pendiente por confirmar.');
+    return ctx.reply(MENSAJE_SIN_PENDIENTE);
   }
 
   try {
@@ -96,23 +131,21 @@ bot.callbackQuery('confirm_gasto', async (ctx) => {
     });
 
     delete ctx.session.pendingExpense;
-    await ctx.reply('✅ ¡Gasto registrado e impactado en tu cuenta con éxito!');
+    await ctx.reply(MENSAJE_GASTO_GUARDADO);
   } catch (error) {
-    await ctx.reply(
-      `❌ No se pudo guardar el gasto en api-gastos:\n${mensajeDeError(error)}`,
-    );
+    await ctx.reply(mensajeErrorGuardado(mensajeDeError(error)));
   }
 });
 
 bot.callbackQuery('cancel_gasto', async (ctx) => {
   await ctx.answerCallbackQuery();
   delete ctx.session.pendingExpense;
-  await ctx.reply('🚫 Registro cancelado.');
+  await ctx.reply(MENSAJE_CANCELADO);
 });
 
 // 4. Manejador de Mensajes de Texto
 bot.on('message:text', async (ctx) => {
-  const telegramId = String(ctx.from?.id);
+  const telegramId = String(ctx.from.id);
 
   // Paso 1: Capturar Email
   if (ctx.session.step === 'AWAITING_EMAIL') {
@@ -124,7 +157,7 @@ bot.on('message:text', async (ctx) => {
     const credenciales = capturarCredenciales(ctx.session, ctx.message.text);
 
     if (!credenciales) {
-      return ctx.reply('⚠️ No pude recuperar tus datos. Reintentá con /start');
+      return ctx.reply(MENSAJE_SESION_PERDIDA);
     }
 
     try {
@@ -132,24 +165,18 @@ bot.on('message:text', async (ctx) => {
         email: credenciales.email,
         password: credenciales.password,
         telegramId,
-        nombre: ctx.from?.first_name || 'Usuario Telegram',
+        nombre: ctx.from.first_name || 'Usuario Telegram',
       };
 
       if (credenciales.accion === 'LOGIN') {
         await AuthService.vincularTelegram(datos);
-        await ctx.reply(
-          '✅ ¡Cuenta vinculada exitosamente! Ya podés registrar tus gastos enviándome mensajes.',
-        );
+        await ctx.reply(MENSAJE_CUENTA_VINCULADA);
       } else {
         await AuthService.registrarTelegram(datos);
-        await ctx.reply(
-          '✅ ¡Cuenta creada y vinculada con éxito! Ya podés registrar tus gastos enviándome mensajes.',
-        );
+        await ctx.reply(MENSAJE_CUENTA_CREADA);
       }
     } catch (error) {
-      await ctx.reply(
-        `❌ Error: ${mensajeDeError(error)}. Reintentá con /start`,
-      );
+      await ctx.reply(mensajeErrorAutenticacion(mensajeDeError(error)));
     }
     return;
   }
@@ -159,19 +186,19 @@ bot.on('message:text', async (ctx) => {
     const gasto = await IaService.analizarTexto(ctx.message.text);
     await pedirConfirmacion(ctx, gasto);
   } catch (error) {
-    await ctx.reply(`⚠️ ${mensajeDeError(error)}`);
+    await ctx.reply(mensajeErrorGenerico(error));
   }
 });
 
 // 5. Manejador de Fotos (Comprobantes / Tickets)
 bot.on('message:photo', async (ctx) => {
   try {
-    await ctx.reply('🧾 Analizando tu comprobante, un momento...');
+    await ctx.reply(MENSAJE_ANALIZANDO);
 
     // Se usa la foto de mayor resolución disponible.
-    const foto = ctx.message.photo[ctx.message.photo.length - 1];
+    const foto = ctx.message.photo.at(-1);
     if (!foto) {
-      return ctx.reply('⚠️ No pude leer la imagen enviada. Probá de nuevo.');
+      return ctx.reply(MENSAJE_IMAGEN_ILEGIBLE);
     }
 
     const archivo = await ctx.api.getFile(foto.file_id);
@@ -189,7 +216,7 @@ bot.on('message:photo', async (ctx) => {
 
     await pedirConfirmacion(ctx, gasto);
   } catch (error) {
-    await ctx.reply(`⚠️ ${mensajeDeError(error)}`);
+    await ctx.reply(mensajeErrorComprobante(mensajeDeError(error)));
   }
 });
 
