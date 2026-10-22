@@ -98,6 +98,7 @@ describe('GastosService', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://api.test/gastos/resumen/bot?telegramId=55%2066',
+      {},
     );
     expect(resultado).toMatchObject({ totalGeneral: 1000 });
   });
