@@ -195,10 +195,13 @@ bot.command('resumen', async (ctx) => {
     const resumen = await GastosService.getSummary(String(usuario.id));
     await ctx.reply(formatearResumen(resumen), { parse_mode: 'HTML' });
   } catch (error) {
-    logger.warn('No se pudo obtener el resumen de gastos', {
-      telegramId: String(usuario.id),
-      detalle: mensajeDeError(error),
-    });
+    logger.warn(
+      {
+        telegramId: String(usuario.id),
+        detalle: mensajeDeError(error),
+      },
+      'No se pudo obtener el resumen de gastos',
+    );
     await ctx.reply(MENSAJE_ERROR_RESUMEN);
   }
 });
@@ -276,8 +279,9 @@ logger.info('Iniciando servicio de Telegram Bot');
 
 bot.start({
   onStart: (info) => {
-    logger.info('Bot iniciado y listo para recibir mensajes', {
-      username: info.username,
-    });
+    logger.info(
+      { username: info.username },
+      'Bot iniciado y listo para recibir mensajes',
+    );
   },
 });

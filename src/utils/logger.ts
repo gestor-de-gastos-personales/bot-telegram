@@ -1,58 +1,75 @@
+import pino from 'pino';
+import type { DestinationStream, Logger, LoggerOptions } from 'pino';
+
 /**
- * Logger estructurado del bot.
+ * Logger estructurado del bot basado en pino.
  *
- * Emite una línea JSON por evento para que los logs puedan ser procesados
- * por herramientas de observabilidad. No usa salidas de consola: escribe
- * sobre los streams estándar para mantener el formato uniforme y no dejar
- * rastros de depuración sueltos en el código.
+ * - Desarrollo: `pino-pretty` con colores para una consola legible.
+ * - Producción: una línea JSON por evento, lista para observabilidad.
+ * - Tests: sin transporte, para poder capturar la salida con un destino propio.
  */
 
 export type NivelLog = 'debug' | 'info' | 'warn' | 'error';
 
 export type ContextoLog = Record<string, unknown>;
 
-interface Registro {
-  timestamp: string;
-  level: NivelLog;
-  service: 'bot-telegram';
-  message: string;
-  [clave: string]: unknown;
+export interface OpcionesLogger {
+  nivel?: string;
+  destino?: DestinationStream;
+  desarrollo?: boolean;
 }
 
-function serializar(nivel: NivelLog, mensaje: string, contexto?: ContextoLog): string {
-  const registro: Registro = {
-    timestamp: new Date().toISOString(),
+function esEntornoDesarrollo(): boolean {
+  return (
+    process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test'
+  );
+}
+
+/** Opciones de pino según entorno; exportadas para poder testearlas. */
+export function crearOpcionesPino(
+  desarrollo: boolean,
+  nivel: string,
+): LoggerOptions {
+  const opciones: LoggerOptions = {
     level: nivel,
-    service: 'bot-telegram',
-    message: mensaje,
-    ...contexto,
+    base: { service: 'bot-telegram' },
+    timestamp: pino.stdTimeFunctions.isoTime,
+    formatters: {
+      level: (etiqueta) => ({ level: etiqueta }),
+    },
   };
 
-  return `${JSON.stringify(registro)}\n`;
-}
-
-function escribir(nivel: NivelLog, mensaje: string, contexto?: ContextoLog): void {
-  const linea = serializar(nivel, mensaje, contexto);
-
-  if (nivel === 'error' || nivel === 'warn') {
-    process.stderr.write(linea);
-    return;
+  if (!desarrollo) {
+    return opciones;
   }
 
-  process.stdout.write(linea);
+  return {
+    ...opciones,
+    transport: {
+      target: 'pino-pretty',
+      options: {
+        colorize: true,
+        translateTime: 'SYS:HH:MM:ss',
+        ignore: 'pid,hostname',
+        singleLine: true,
+      },
+    },
+  };
 }
 
-export const logger = {
-  debug(mensaje: string, contexto?: ContextoLog): void {
-    escribir('debug', mensaje, contexto);
-  },
-  info(mensaje: string, contexto?: ContextoLog): void {
-    escribir('info', mensaje, contexto);
-  },
-  warn(mensaje: string, contexto?: ContextoLog): void {
-    escribir('warn', mensaje, contexto);
-  },
-  error(mensaje: string, contexto?: ContextoLog): void {
-    escribir('error', mensaje, contexto);
-  },
-};
+/**
+ * Crea un logger pino. Permite inyectar un destino en tests para inspeccionar
+ * los registros sin depender de los streams del proceso.
+ */
+export function crearLogger(opciones: OpcionesLogger = {}): Logger {
+  const nivel = opciones.nivel ?? (process.env.LOG_LEVEL || 'info');
+  const desarrollo = opciones.desarrollo ?? esEntornoDesarrollo();
+
+  if (opciones.destino) {
+    return pino(crearOpcionesPino(false, nivel), opciones.destino);
+  }
+
+  return pino(crearOpcionesPino(desarrollo, nivel));
+}
+
+export const logger = crearLogger();
