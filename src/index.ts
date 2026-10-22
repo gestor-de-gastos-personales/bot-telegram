@@ -2,6 +2,7 @@
 import 'dotenv/config';
 import { Bot, session } from 'grammy';
 import type { Context, SessionFlavor } from 'grammy';
+import type { PhotoSize } from 'grammy/types';
 import { AuthService } from './services/auth.service.js';
 import { GastosService } from './services/gastos.service.js';
 import { IaService } from './services/ia.service.js';
@@ -14,6 +15,7 @@ import {
   capturarEmail,
   iniciarAutenticacion,
 } from './auth.js';
+import type { CredencialesCapturadas } from './auth.js';
 import { vistaBienvenida } from './views/bienvenida.js';
 import {
   MENSAJE_CUENTA_CREADA,
@@ -67,6 +69,109 @@ async function pedirConfirmacion(ctx: BotContexto, gasto: GastoAnalizado) {
     parse_mode: 'HTML',
     reply_markup: tecladoConfirmacion(),
   });
+}
+
+/**
+ * Completa el login o registro una vez que el usuario envió sus credenciales.
+ */
+async function vincularCuenta(
+  ctx: BotContexto,
+  credenciales: CredencialesCapturadas,
+  telegramId: string,
+  nombre: string,
+) {
+  const datos = {
+    email: credenciales.email,
+    password: credenciales.password,
+    telegramId,
+    nombre,
+  };
+
+  try {
+    if (credenciales.accion === 'LOGIN') {
+      await AuthService.vincularTelegram(datos);
+      await ctx.reply(MENSAJE_CUENTA_VINCULADA);
+    } else {
+      await AuthService.registrarTelegram(datos);
+      await ctx.reply(MENSAJE_CUENTA_CREADA);
+    }
+  } catch (error) {
+    await ctx.reply(mensajeErrorAutenticacion(mensajeDeError(error)));
+  }
+}
+
+/**
+ * Atiende los pasos de email/contraseña del flujo de autenticación.
+ * Devuelve true cuando el mensaje ya fue consumido por este flujo.
+ */
+async function procesarAutenticacion(
+  ctx: BotContexto,
+  texto: string,
+  telegramId: string,
+  nombre: string,
+): Promise<boolean> {
+  if (ctx.session.step === 'AWAITING_EMAIL') {
+    await ctx.reply(capturarEmail(ctx.session, texto));
+    return true;
+  }
+
+  if (ctx.session.step !== 'AWAITING_PASSWORD') {
+    return false;
+  }
+
+  const credenciales = capturarCredenciales(ctx.session, texto);
+
+  if (!credenciales) {
+    await ctx.reply(MENSAJE_SESION_PERDIDA);
+    return true;
+  }
+
+  await vincularCuenta(ctx, credenciales, telegramId, nombre);
+  return true;
+}
+
+/** Analiza un mensaje de texto y pide confirmación del gasto detectado. */
+async function analizarGastoTexto(ctx: BotContexto, texto: string) {
+  try {
+    const gasto = await IaService.analizarTexto(texto);
+    await pedirConfirmacion(ctx, gasto);
+  } catch (error) {
+    await ctx.reply(mensajeErrorGenerico(error));
+  }
+}
+
+/** Descarga la imagen del comprobante desde los servidores de Telegram. */
+async function descargarComprobante(fileId: string): Promise<Buffer> {
+  const archivo = await bot.api.getFile(fileId);
+  const url = `https://api.telegram.org/file/bot${token}/${archivo.file_path}`;
+  const descarga = await fetch(url);
+
+  if (!descarga.ok) {
+    throw new Error(`no se pudo descargar la imagen (${descarga.status})`);
+  }
+
+  return Buffer.from(await descarga.arrayBuffer());
+}
+
+/** Analiza una foto de comprobante y pide confirmación del gasto detectado. */
+async function procesarFoto(
+  ctx: BotContexto,
+  foto: PhotoSize | undefined,
+) {
+  try {
+    await ctx.reply(MENSAJE_ANALIZANDO);
+
+    if (!foto) {
+      await ctx.reply(MENSAJE_IMAGEN_ILEGIBLE);
+      return;
+    }
+
+    const buffer = await descargarComprobante(foto.file_id);
+    const gasto = await IaService.analizarImagen(buffer, 'comprobante.jpg');
+    await pedirConfirmacion(ctx, gasto);
+  } catch (error) {
+    await ctx.reply(mensajeErrorComprobante(mensajeDeError(error)));
+  }
 }
 
 // 1. Comandos de bienvenida y ayuda
@@ -146,78 +251,24 @@ bot.callbackQuery('cancel_gasto', async (ctx) => {
 // 4. Manejador de Mensajes de Texto
 bot.on('message:text', async (ctx) => {
   const telegramId = String(ctx.from.id);
+  const nombre = ctx.from.first_name || 'Usuario Telegram';
+  const texto = ctx.message.text;
 
-  // Paso 1: Capturar Email
-  if (ctx.session.step === 'AWAITING_EMAIL') {
-    return ctx.reply(capturarEmail(ctx.session, ctx.message.text));
-  }
+  const consumido = await procesarAutenticacion(
+    ctx,
+    texto,
+    telegramId,
+    nombre,
+  );
 
-  // Paso 2: Capturar Contraseña y Autenticar
-  if (ctx.session.step === 'AWAITING_PASSWORD') {
-    const credenciales = capturarCredenciales(ctx.session, ctx.message.text);
-
-    if (!credenciales) {
-      return ctx.reply(MENSAJE_SESION_PERDIDA);
-    }
-
-    try {
-      const datos = {
-        email: credenciales.email,
-        password: credenciales.password,
-        telegramId,
-        nombre: ctx.from.first_name || 'Usuario Telegram',
-      };
-
-      if (credenciales.accion === 'LOGIN') {
-        await AuthService.vincularTelegram(datos);
-        await ctx.reply(MENSAJE_CUENTA_VINCULADA);
-      } else {
-        await AuthService.registrarTelegram(datos);
-        await ctx.reply(MENSAJE_CUENTA_CREADA);
-      }
-    } catch (error) {
-      await ctx.reply(mensajeErrorAutenticacion(mensajeDeError(error)));
-    }
-    return;
-  }
-
-  // Paso 3: Análisis de Gastos mediante Servicio IA
-  try {
-    const gasto = await IaService.analizarTexto(ctx.message.text);
-    await pedirConfirmacion(ctx, gasto);
-  } catch (error) {
-    await ctx.reply(mensajeErrorGenerico(error));
+  if (!consumido) {
+    await analizarGastoTexto(ctx, texto);
   }
 });
 
 // 5. Manejador de Fotos (Comprobantes / Tickets)
 bot.on('message:photo', async (ctx) => {
-  try {
-    await ctx.reply(MENSAJE_ANALIZANDO);
-
-    // Se usa la foto de mayor resolución disponible.
-    const foto = ctx.message.photo.at(-1);
-    if (!foto) {
-      return ctx.reply(MENSAJE_IMAGEN_ILEGIBLE);
-    }
-
-    const archivo = await ctx.api.getFile(foto.file_id);
-
-    const descarga = await fetch(
-      `https://api.telegram.org/file/bot${token}/${archivo.file_path}`,
-    );
-
-    if (!descarga.ok) {
-      throw new Error(`no se pudo descargar la imagen (${descarga.status})`);
-    }
-
-    const buffer = Buffer.from(await descarga.arrayBuffer());
-    const gasto = await IaService.analizarImagen(buffer, 'comprobante.jpg');
-
-    await pedirConfirmacion(ctx, gasto);
-  } catch (error) {
-    await ctx.reply(mensajeErrorComprobante(mensajeDeError(error)));
-  }
+  await procesarFoto(ctx, ctx.message.photo.at(-1));
 });
 
 // Iniciar bot con logging estructurado
