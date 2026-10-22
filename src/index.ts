@@ -83,11 +83,13 @@ async function pedirConfirmacion(
   origen: 'texto' | 'imagen' = 'texto',
 ) {
   if (gasto.monto === null || Number.isNaN(gasto.monto)) {
+    logger.warn({ gasto, origen }, 'Gasto sin monto válido, no se pide confirmación');
     const aviso =
       origen === 'imagen' ? mensajeNoEntendidoImagen() : mensajeNoEntendidoTexto();
     return ctx.reply(aviso);
   }
 
+  logger.info({ gasto, origen }, 'Gasto listo para confirmar');
   ctx.session.pendingExpense = gasto;
   delete ctx.session.procesando;
 
@@ -168,9 +170,8 @@ async function procesarAutenticacion(
   return true;
 }
 
-/**
- * Interpreta el mensaje como una corrección del gasto pendiente.
- * Solo actúa si hay un gasto a la espera de confirmación.
+/** Interpreta el mensaje como una corrección del gasto pendiente.
+ * Si se corrige el comercio, intenta actualizar la categoría coherentemente.
  */
 async function procesarEdicion(ctx: BotContexto, texto: string): Promise<boolean> {
   const gasto = ctx.session.pendingExpense;
@@ -185,7 +186,32 @@ async function procesarEdicion(ctx: BotContexto, texto: string): Promise<boolean
     return false;
   }
 
-  ctx.session.pendingExpense = resultado.gasto;
+  let gastoActualizado = resultado.gasto;
+
+  if (resultado.cambio?.includes('Comercio')) {
+    try {
+      const reanalizado = await IaService.analizarTexto(
+        `Corregir gasto pendiente: comercio ${gastoActualizado.comercio ?? ''}, monto ${gastoActualizado.monto}, actualizar categoría coherente al nuevo comercio. Responde con el gasto actualizado en el mismo formato.`,
+      );
+      if (reanalizado.intent === 'CREATE_EXPENSE') {
+        gastoActualizado = {
+          ...gastoActualizado,
+          comercio: reanalizado.comercio ?? gastoActualizado.comercio,
+          categoria: reanalizado.categoria ?? gastoActualizado.categoria,
+          descripcion: reanalizado.descripcion ?? gastoActualizado.descripcion,
+        };
+        logger.info({ reanalizado }, 'Categoría/coherencia ajustada tras cambio de comercio');
+      }
+    } catch (error) {
+      logger.debug({ error: mensajeDeError(error) }, 'No se pudo reanalizar coherencia comercio-categoría');
+    }
+  }
+
+  ctx.session.pendingExpense = gastoActualizado;
+  logger.info(
+    { gastoAntes: gasto, gastoNuevo: gastoActualizado, cambio: resultado.cambio },
+    'Gasto pendiente corregido por lenguaje natural',
+  );
   await ctx.reply(`✏️ Actualicé el gasto.\n${resultado.cambio}`);
   await mostrarGastoPendiente(ctx);
   return true;
@@ -217,17 +243,51 @@ async function analizarGastoTexto(ctx: BotContexto, texto: string) {
 
   try {
     const resultado = await IaService.analizarTexto(texto);
+    logger.info({ intento: resultado.intent, gastoIA: resultado }, 'Respuesta de IA para texto');
 
     if (resultado.intent === 'GET_SUMMARY') {
       return await responderResumen(ctx, telegramId, resultado.rango);
     }
 
     if (resultado.intent === 'CREATE_CATEGORY') {
+      if (ctx.session.pendingExpense) {
+        const correccion = interpretarEdicion(ctx.session.pendingExpense, texto);
+
+        if (correccion) {
+          let gastoActualizado = correccion.gasto;
+
+          if (correccion.cambio?.includes('Comercio')) {
+            try {
+              const reanalizado = await IaService.analizarTexto(
+                `Corregir gasto pendiente: comercio ${gastoActualizado.comercio ?? ''}, monto ${gastoActualizado.monto}. Ajustá categoría para que sea coherente con el comercio.`,
+              );
+              if (reanalizado.intent === 'CREATE_EXPENSE') {
+                gastoActualizado = {
+                  ...gastoActualizado,
+                  categoria: reanalizado.categoria ?? gastoActualizado.categoria,
+                };
+              }
+            } catch (error) {
+              logger.debug({ error: mensajeDeError(error) }, 'No se pudo ajustar coherencia comercio-categoría');
+            }
+          }
+
+          ctx.session.pendingExpense = gastoActualizado;
+          logger.info(
+            { gastoNuevo: gastoActualizado, cambio: correccion.cambio },
+            'Corrección aplicada vía CREATE_CATEGORY con gasto pendiente',
+          );
+          await ctx.reply(`✏️ Actualicé el gasto.\n${correccion.cambio}`);
+          return await mostrarGastoPendiente(ctx);
+        }
+      }
+
       return await crearCategoria(ctx, resultado.categoria);
     }
 
     await pedirConfirmacion(ctx, resultado, 'texto');
   } catch (error) {
+    logger.error({ error: mensajeDeError(error) }, 'Error al analizar gasto con IA');
     await ctx.reply(mensajeErrorGenerico(error));
   }
 }
@@ -379,17 +439,33 @@ bot.on('message:text', async (ctx) => {
   const nombre = ctx.from.first_name || 'Usuario Telegram';
   const texto = ctx.message.text;
 
+  logger.info(
+    {
+      telegramId,
+      nombre,
+      texto,
+      tienePendiente: Boolean(ctx.session.pendingExpense),
+      pasoAuth: ctx.session.step ?? null,
+    },
+    'Mensaje de texto recibido',
+  );
+
   const consumido =
     (await procesarAutenticacion(ctx, texto, telegramId, nombre)) ||
     (await procesarEdicion(ctx, texto));
 
-  if (!consumido) {
-    await analizarGastoTexto(ctx, texto);
+  if (consumido) {
+    logger.debug({ telegramId }, 'Mensaje consumido por flujo de autenticación o edición');
+    return;
   }
+
+  await analizarGastoTexto(ctx, texto);
 });
 
 // 5. Manejador de Fotos (Comprobantes / Tickets)
 bot.on('message:photo', async (ctx) => {
+  const telegramId = String(ctx.from?.id ?? '');
+  logger.info({ telegramId }, 'Foto recibida para análisis');
   await procesarFoto(ctx, ctx.message.photo.at(-1));
 });
 
@@ -402,5 +478,13 @@ bot.start({
       { username: info.username },
       'Bot iniciado y listo para recibir mensajes',
     );
+    bot.api
+      .setMyCommands([
+        { command: 'start', description: 'Iniciar y autenticar' },
+        { command: 'ayuda', description: 'Ver ayuda y comandos' },
+        { command: 'categoria', description: 'Crear una categoría (ej: /categoria Comida)' },
+        { command: 'resumen', description: 'Ver resumen de gastos' },
+      ])
+      .catch((error) => logger.warn({ error }, 'No se pudieron registrar los comandos'));
   },
 });
