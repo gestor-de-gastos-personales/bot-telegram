@@ -1,5 +1,7 @@
 import { baseUrl, pedirJson, postJson } from './http.js';
 import type { OpcionesError } from './http.js';
+import { esRangoResumen } from '../dominio/rango.js';
+import type { RangoResumen } from '../dominio/rango.js';
 
 /**
  * Estructura normalizada que devuelve servicio-ia
@@ -11,6 +13,8 @@ export interface GastoAnalizado {
   comercio: string | null;
   categoria: string | null;
   descripcion: string | null;
+  fecha: string | null;
+  rango: RangoResumen | null;
 }
 
 const servicioIa = () =>
@@ -30,6 +34,7 @@ function errorIa(): OpcionesError {
 function normalizarGasto(payload: unknown): GastoAnalizado {
   const data = (payload ?? {}) as Record<string, unknown>;
   const monto = data.monto;
+  const fecha = data.fecha;
 
   return {
     intent: typeof data.intent === 'string' ? data.intent : 'UNKNOWN',
@@ -37,6 +42,11 @@ function normalizarGasto(payload: unknown): GastoAnalizado {
     comercio: typeof data.comercio === 'string' ? data.comercio : null,
     categoria: typeof data.categoria === 'string' ? data.categoria : null,
     descripcion: typeof data.descripcion === 'string' ? data.descripcion : null,
+    fecha:
+      typeof fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fecha)
+        ? fecha
+        : null,
+    rango: esRangoResumen(data.rango) ? data.rango : null,
   };
 }
 
