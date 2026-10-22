@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { InlineKeyboard } from 'grammy';
 import type { GastoAnalizado } from '../services/ia.service.js';
 import type { ResumenGastos } from '../services/gastos.service.js';
-import { construirVistaPrevia, formatearFechaGasto, mensajePedirCampo, tecladoConfirmacion, tecladoEdicion } from './gasto-preview.js';
+import { construirVistaPrevia, formatearFechaGasto, PISTA_EDICION, tecladoConfirmacion } from './gasto-preview.js';
 import { formatearResumen, ETIQUETAS_RANGO } from './resumen.js';
 import { mensajeDeError, mensajeErrorGenerico } from './errores.js';
 import {
@@ -88,14 +88,11 @@ describe('vista previa del gasto', () => {
     expect(formatearFechaGasto(null)).toBe('hoy');
   });
 
-  it('arma el teclado de edición con los campos editables', () => {
-    expect(tecladoEdicion()).toBeInstanceOf(InlineKeyboard);
-  });
+  it('sugiere corregir el gasto por texto', () => {
+    const vista = construirVistaPrevia(gasto);
 
-  it('pide el valor del campo a editar', () => {
-    expect(mensajePedirCampo('monto')).toContain('nuevo monto');
-    expect(mensajePedirCampo('descripcion')).toContain('nueva descripción');
-    expect(mensajePedirCampo('categoria')).toContain('nueva categoría');
+    expect(vista).toContain(PISTA_EDICION);
+    expect(PISTA_EDICION).toContain('el precio es');
   });
 });
 

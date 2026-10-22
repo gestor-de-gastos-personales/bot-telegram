@@ -1,5 +1,4 @@
 import type { GastoAnalizado } from '../services/ia.service.js';
-import type { CampoEditable } from '../edicion.js';
 
 /**
  * Pasos del flujo de autenticación que se guardan en la sesión de grammY.
@@ -16,8 +15,6 @@ export interface SessionData {
   email?: string;
   accion?: AccionAutenticacion;
   pendingExpense?: GastoAnalizado;
-  /** Campo del gasto pendiente que el usuario está editando. */
-  editando?: CampoEditable;
   /** Evita confirmaciones o cancelaciones duplicadas por doble clic. */
   procesando?: boolean;
 }
@@ -37,6 +34,5 @@ export function limpiarSesion(session: SessionData): void {
   delete session.email;
   delete session.accion;
   delete session.pendingExpense;
-  delete session.editando;
   delete session.procesando;
 }

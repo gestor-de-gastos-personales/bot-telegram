@@ -17,8 +17,7 @@ import {
   iniciarAutenticacion,
 } from './auth.js';
 import type { CredencialesCapturadas } from './auth.js';
-import { aplicarEdicion } from './edicion.js';
-import type { CampoEditable } from './edicion.js';
+import { interpretarEdicion } from './edicion.js';
 import { vistaBienvenida } from './views/bienvenida.js';
 import {
   MENSAJE_CUENTA_CREADA,
@@ -27,12 +26,8 @@ import {
   mensajeErrorAutenticacion,
 } from './views/autenticacion.js';
 import {
-  MENSAJE_EDITAR,
   construirVistaPrevia,
-  mensajePedirCampo,
   tecladoConfirmacion,
-  tecladoEdicion,
-  tecladoVolver,
 } from './views/gasto-preview.js';
 import {
   MENSAJE_CANCELADO,
@@ -102,15 +97,13 @@ async function pedirConfirmacion(
   });
 }
 
-/** Reenvía la vista previa del gasto pendiente tras una edición. */
+/** Reenvía la vista previa del gasto pendiente tras una corrección. */
 async function mostrarGastoPendiente(ctx: BotContexto) {
   const gasto = ctx.session.pendingExpense;
 
   if (!gasto) {
     return ctx.reply(MENSAJE_SIN_PENDIENTE);
   }
-
-  delete ctx.session.editando;
 
   return ctx.reply(construirVistaPrevia(gasto), {
     parse_mode: 'HTML',
@@ -176,25 +169,24 @@ async function procesarAutenticacion(
 }
 
 /**
- * Aplica la edición de un campo del gasto pendiente.
- * Devuelve true cuando el mensaje fue consumido por este flujo.
+ * Interpreta el mensaje como una corrección del gasto pendiente.
+ * Solo actúa si hay un gasto a la espera de confirmación.
  */
 async function procesarEdicion(ctx: BotContexto, texto: string): Promise<boolean> {
-  const campo = ctx.session.editando;
+  const gasto = ctx.session.pendingExpense;
 
-  if (!campo || !ctx.session.pendingExpense) {
+  if (!gasto) {
     return false;
   }
 
-  const resultado = aplicarEdicion(ctx.session.pendingExpense, campo, texto);
+  const resultado = interpretarEdicion(gasto, texto);
 
-  if (resultado.error) {
-    await ctx.reply(resultado.error);
-    return true;
+  if (!resultado) {
+    return false;
   }
 
   ctx.session.pendingExpense = resultado.gasto;
-  await ctx.reply('✅ Listo, actualicé el gasto.');
+  await ctx.reply(`✏️ Actualicé el gasto.\n${resultado.cambio}`);
   await mostrarGastoPendiente(ctx);
   return true;
 }
@@ -289,40 +281,6 @@ async function procesarFoto(ctx: BotContexto, foto: PhotoSize | undefined) {
   }
 }
 
-/** Muestra el menú de edición del gasto pendiente. */
-async function abrirEditor(ctx: BotContexto) {
-  if (!ctx.session.pendingExpense) {
-    return ctx.reply(MENSAJE_SIN_PENDIENTE);
-  }
-
-  delete ctx.session.editando;
-
-  try {
-    await ctx.editMessageText(MENSAJE_EDITAR, {
-      parse_mode: 'HTML',
-      reply_markup: tecladoEdicion(),
-    });
-  } catch {
-    await ctx.reply(MENSAJE_EDITAR, {
-      parse_mode: 'HTML',
-      reply_markup: tecladoEdicion(),
-    });
-  }
-}
-
-/** Pide al usuario el nuevo valor de un campo editable. */
-async function pedirCampo(ctx: BotContexto, campo: CampoEditable) {
-  if (!ctx.session.pendingExpense) {
-    return ctx.reply(MENSAJE_SIN_PENDIENTE);
-  }
-
-  ctx.session.editando = campo;
-
-  await ctx.editMessageText(mensajePedirCampo(campo), {
-    reply_markup: tecladoVolver(),
-  });
-}
-
 // 1. Comandos de bienvenida y ayuda
 bot.command('start', async (ctx) => {
   ctx.session = crearSesionInicial();
@@ -393,7 +351,6 @@ bot.callbackQuery('confirm_gasto', async (ctx) => {
 
     delete ctx.session.pendingExpense;
     delete ctx.session.procesando;
-    delete ctx.session.editando;
     await ctx.reply(MENSAJE_GASTO_GUARDADO);
   } catch (error) {
     delete ctx.session.procesando;
@@ -410,38 +367,13 @@ bot.callbackQuery('cancel_gasto', async (ctx) => {
 
   ctx.session.procesando = true;
   delete ctx.session.pendingExpense;
-  delete ctx.session.editando;
 
   await quitarTeclado(ctx);
   await ctx.editMessageText(MENSAJE_CANCELADO);
   delete ctx.session.procesando;
 });
 
-// 4. Callbacks de Edición del Gasto
-bot.callbackQuery('edit_gasto', async (ctx) => {
-  await ctx.answerCallbackQuery();
-  await abrirEditor(ctx);
-});
-
-bot.callbackQuery('edit_volver', async (ctx) => {
-  await ctx.answerCallbackQuery();
-  await mostrarGastoPendiente(ctx);
-});
-
-const CAMPOS_EDICION: Array<[string, CampoEditable]> = [
-  ['edit_monto', 'monto'],
-  ['edit_descripcion', 'descripcion'],
-  ['edit_categoria', 'categoria'],
-];
-
-for (const [callback, campo] of CAMPOS_EDICION) {
-  bot.callbackQuery(callback, async (ctx) => {
-    await ctx.answerCallbackQuery();
-    await pedirCampo(ctx, campo);
-  });
-}
-
-// 5. Manejador de Mensajes de Texto
+// 4. Manejador de Mensajes de Texto
 bot.on('message:text', async (ctx) => {
   const telegramId = String(ctx.from.id);
   const nombre = ctx.from.first_name || 'Usuario Telegram';
@@ -456,7 +388,7 @@ bot.on('message:text', async (ctx) => {
   }
 });
 
-// 6. Manejador de Fotos (Comprobantes / Tickets)
+// 5. Manejador de Fotos (Comprobantes / Tickets)
 bot.on('message:photo', async (ctx) => {
   await procesarFoto(ctx, ctx.message.photo.at(-1));
 });

@@ -6,7 +6,7 @@ export const MENSAJE_AYUDA = [
   '',
   '• Enviame un texto como "Gasté 1500 en el Coto" y lo analizo.',
   '• Enviame una foto de un comprobante y extraigo el gasto.',
-  '• Corregí el gasto antes de guardarlo con el botón ✏️ Editar.',
+  '• Antes de guardar, corregí escribiendo "el precio es 2500".',
   '• Pedime "resumen de los últimos 15 días" y lo calculo.',
   '• Usá /resumen para ver el total del año actual.',
   '• Creá categorías con /categoria Gimnasio.',
