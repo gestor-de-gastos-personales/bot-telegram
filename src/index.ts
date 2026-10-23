@@ -282,7 +282,10 @@ async function analizarGastoTexto(ctx: BotContexto, texto: string) {
         }
       }
 
-      return await crearCategoria(ctx, resultado.categoria);
+      await ctx.reply(
+        'Las categorías solo se pueden crear con el comando /categoria. Ejemplo: /categoria Comida',
+      );
+      return;
     }
 
     await pedirConfirmacion(ctx, resultado, 'texto');
@@ -457,6 +460,12 @@ bot.on('message:text', async (ctx) => {
   if (consumido) {
     logger.debug({ telegramId }, 'Mensaje consumido por flujo de autenticación o edición');
     return;
+  }
+
+  if (ctx.session.pendingExpense) {
+    logger.info({ texto }, 'Mensaje sin patrón de corrección conocido, mostrando gasto pendiente');
+    await ctx.reply('Ese mensaje no parece una corrección del gasto pendiente. Si querés corregir algo, escribime por ejemplo "el precio es 2500" o "fue en supermercado".');
+    return await mostrarGastoPendiente(ctx);
   }
 
   await analizarGastoTexto(ctx, texto);
