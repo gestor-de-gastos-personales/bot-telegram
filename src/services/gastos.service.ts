@@ -40,6 +40,28 @@ export interface CategoriaCreada {
   nombre: string;
 }
 
+export interface GastoEncontrado {
+  id: number;
+  monto: number;
+  descripcion: string;
+  fecha: string;
+  categoria?: { nombre: string };
+  usuario?: { telegramId?: string };
+}
+
+export interface GastoRecurrente {
+  id: number;
+  monto: number;
+  comercio?: string;
+  categoriaId: number;
+  descripcion: string;
+  frecuencia: string;
+  diaSemana?: number | null;
+  diaMes?: number | null;
+  activo: boolean;
+  proximaEjecucion: string;
+}
+
 const apiGastos = () =>
   baseUrl('API_GASTOS_URL', 'http://127.0.0.1:3000');
 
@@ -92,6 +114,72 @@ export class GastosService {
     return postJson<CategoriaCreada>(
       `${apiGastos()}/categorias`,
       { nombre },
+      ERROR_API,
+    );
+  }
+
+  static async getUltimoGasto(
+    telegramId: string,
+    filtros: { comercio?: string; categoria?: string; desde?: string } = {},
+  ): Promise<GastoEncontrado> {
+    const params = new URLSearchParams({ telegramId });
+    if (filtros.comercio) params.set('comercio', filtros.comercio);
+    if (filtros.categoria) params.set('categoria', filtros.categoria);
+    if (filtros.desde) params.set('desde', filtros.desde);
+
+    return pedirJson<GastoEncontrado>(
+      `${apiGastos()}/gastos/ultimo?${params.toString()}`,
+      {},
+      ERROR_API,
+    );
+  }
+
+  static async deleteGasto(gastoId: number, telegramId: string) {
+    const response = await fetch(
+      `${apiGastos()}/gastos/${gastoId}?telegramId=${encodeURIComponent(telegramId)}`,
+      { method: 'DELETE' },
+    );
+    if (!response.ok) {
+      throw new Error(`api-gastos respondió ${response.status}`);
+    }
+    return response.json();
+  }
+
+  static async updateGasto(gastoId: number, telegramId: string, datos: Record<string, unknown>) {
+    const response = await fetch(
+      `${apiGastos()}/gastos/${gastoId}?telegramId=${encodeURIComponent(telegramId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(datos),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`api-gastos respondió ${response.status}`);
+    }
+    return response.json();
+  }
+
+  static async createRecurrente(datos: Record<string, unknown>) {
+    return postJson<GastoRecurrente>(
+      `${apiGastos()}/gastos/recurrentes`,
+      datos,
+      ERROR_API,
+    );
+  }
+
+  static async getRecurrentesVencidas() {
+    return pedirJson<GastoRecurrente[]>(
+      `${apiGastos()}/gastos/recurrentes/vencidas`,
+      {},
+      ERROR_API,
+    );
+  }
+
+  static async ejecutarRecurrente(reglaId?: number) {
+    return postJson<unknown>(
+      `${apiGastos()}/gastos/recurrentes/ejecutar`,
+      reglaId ? { reglaId } : {},
       ERROR_API,
     );
   }

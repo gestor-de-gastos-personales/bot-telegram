@@ -1,8 +1,5 @@
 import type { GastoAnalizado } from '../services/ia.service.js';
 
-/**
- * Pasos del flujo de autenticación que se guardan en la sesión de grammY.
- */
 export type PasoAutenticacion = 'AWAITING_EMAIL' | 'AWAITING_PASSWORD';
 
 /**
@@ -17,6 +14,10 @@ export interface SessionData {
   pendingExpense?: GastoAnalizado;
   /** Evita confirmaciones o cancelaciones duplicadas por doble clic. */
   procesando?: boolean;
+  recurringStep?: 'ASK_IF_RECURRING' | 'ASK_FREQUENCY' | 'ASK_DAY';
+  pendingRecurring?: GastoAnalizado & { telegramId?: string };
+  pendingDelete?: { gastoId: number; monto: number; descripcion: string; fecha: string; categoria?: string };
+  pendingEdit?: { gastoId: number; gasto: Record<string, unknown> };
 }
 
 /**
@@ -35,4 +36,8 @@ export function limpiarSesion(session: SessionData): void {
   delete session.accion;
   delete session.pendingExpense;
   delete session.procesando;
+  delete session.recurringStep;
+  delete session.pendingRecurring;
+  delete session.pendingDelete;
+  delete session.pendingEdit;
 }
