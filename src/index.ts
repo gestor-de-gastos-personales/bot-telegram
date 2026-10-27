@@ -46,7 +46,6 @@ import {
 } from './views/fallbacks.js';
 import { MENSAJE_ERROR_RESUMEN, formatearResumen } from './views/resumen.js';
 import { MENSAJE_AYUDA } from './views/ayuda.js';
-import { iniciarScheduler } from './scheduler/recurrentes.js';
 import {
   MENSAJE_CATEGORIA_INVALIDA,
   mensajeCategoriaCreada,
@@ -652,7 +651,6 @@ bot.start({
       { username: info.username },
       'Bot iniciado y listo para recibir mensajes',
     );
-    iniciarScheduler(bot);
     bot.api
       .setMyCommands([
         { command: 'start', description: 'Iniciar y autenticar' },
