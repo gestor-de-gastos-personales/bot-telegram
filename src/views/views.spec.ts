@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { InlineKeyboard } from 'grammy';
 import type { GastoAnalizado } from '../services/ia.service.js';
 import type { ResumenGastos } from '../services/gastos.service.js';
-import { construirVistaPrevia, tecladoConfirmacion } from './gasto-preview.js';
-import { formatearResumen } from './resumen.js';
+import { construirVistaPrevia, formatearFechaGasto, PISTA_EDICION, tecladoConfirmacion } from './gasto-preview.js';
+import { formatearResumen, ETIQUETAS_RANGO } from './resumen.js';
 import { mensajeDeError, mensajeErrorGenerico } from './errores.js';
 import {
   MENSAJE_CANCELADO,
@@ -12,6 +12,12 @@ import {
 } from './confirmacion.js';
 import { MENSAJE_CUENTA_CREADA } from './autenticacion.js';
 import { MENSAJE_AYUDA } from './ayuda.js';
+import {
+  MENSAJE_CATEGORIA_INVALIDA,
+  mensajeCategoriaCreada,
+  mensajeErrorCategoria,
+  mensajeUsoCategoria,
+} from './categoria.js';
 
 const gasto: GastoAnalizado = {
   intent: 'GASTO',
@@ -19,6 +25,8 @@ const gasto: GastoAnalizado = {
   comercio: 'Coto <Centro>',
   categoria: 'Alimentación & Bebidas',
   descripcion: 'Compra "semanal"',
+  fecha: '2026-10-20',
+  rango: null,
 };
 
 const resumen: ResumenGastos = {
@@ -62,6 +70,8 @@ describe('vista previa del gasto', () => {
       comercio: null,
       categoria: null,
       descripcion: null,
+      fecha: null,
+      rango: null,
     });
 
     expect(vista).toContain('Monto:</b> $-');
@@ -71,6 +81,18 @@ describe('vista previa del gasto', () => {
 
   it('arma el teclado de confirmación con las dos acciones', () => {
     expect(tecladoConfirmacion()).toBeInstanceOf(InlineKeyboard);
+  });
+
+  it('muestra la fecha del gasto y asume hoy cuando falta', () => {
+    expect(construirVistaPrevia(gasto)).toContain('Fecha:</b> 20/10/2026');
+    expect(formatearFechaGasto(null)).toBe('hoy');
+  });
+
+  it('sugiere corregir el gasto por texto', () => {
+    const vista = construirVistaPrevia(gasto);
+
+    expect(vista).toContain(PISTA_EDICION);
+    expect(PISTA_EDICION).toContain('el precio es');
   });
 });
 
@@ -93,6 +115,29 @@ describe('vista de resumen', () => {
 
     expect(texto).toContain('Resumen de año 2026');
     expect(texto).toContain('No hay gastos registrados');
+  });
+
+  it.each([
+    ['WEEK', 'esta semana'],
+    ['15_DAYS', 'los últimos 15 días'],
+    ['MONTH', 'este mes'],
+    ['2_MONTHS', 'los últimos 2 meses'],
+    ['YEAR', 'este año'],
+  ] as const)('etiqueta el rango %s', (rango, etiqueta) => {
+    const texto = formatearResumen({
+      periodo: {
+        mes: null,
+        anio: 2026,
+        rango,
+        fechaInicio: '',
+        fechaFin: '',
+      },
+      totalGeneral: 0,
+      porCategoria: [],
+    });
+
+    expect(texto).toContain(etiqueta);
+    expect(ETIQUETAS_RANGO[rango]).toBe(etiqueta);
   });
 });
 
@@ -120,5 +165,12 @@ describe('mensajes estáticos', () => {
     expect(MENSAJE_CANCELADO).toContain('cancelado');
     expect(MENSAJE_CUENTA_CREADA).toContain('Cuenta creada');
     expect(MENSAJE_AYUDA).toContain('/resumen');
+  });
+
+  it('define los textos de creación de categorías', () => {
+    expect(MENSAJE_CATEGORIA_INVALIDA).toContain('2 letras');
+    expect(mensajeUsoCategoria()).toContain('/categoria');
+    expect(mensajeCategoriaCreada('Gimnasio')).toContain('Gimnasio');
+    expect(mensajeErrorCategoria('duplicada')).toContain('duplicada');
   });
 });

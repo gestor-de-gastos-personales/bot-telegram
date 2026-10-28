@@ -75,6 +75,41 @@ describe('GastosService', () => {
     expect(body.descripcion).toBe('Kiosco');
   });
 
+  it('envía la fecha detectada por la IA cuando existe', async () => {
+    fetchMock.mockResolvedValue(respuestaJson({ id: 12 }));
+
+    await GastosService.createExpense({
+      monto: 300,
+      categoria: 'Ocio',
+      comercio: 'Cine',
+      descripcion: null,
+      fecha: '2026-10-18',
+      telegramId: '55',
+    });
+
+    const body = JSON.parse(
+      String(fetchMock.mock.calls[0]?.[1]?.body),
+    ) as Record<string, unknown>;
+    expect(body.fecha).toBe('2026-10-18');
+  });
+
+  it('omite la fecha cuando la IA no la detectó', async () => {
+    fetchMock.mockResolvedValue(respuestaJson({ id: 13 }));
+
+    await GastosService.createExpense({
+      monto: 300,
+      categoria: 'Ocio',
+      comercio: 'Cine',
+      descripcion: null,
+      telegramId: '55',
+    });
+
+    const body = JSON.parse(
+      String(fetchMock.mock.calls[0]?.[1]?.body),
+    ) as Record<string, unknown>;
+    expect(body.fecha).toBeUndefined();
+  });
+
   it('propaga el error cuando api-gastos rechaza el gasto', async () => {
     fetchMock.mockResolvedValue(respuestaError(400, 'categoría inexistente'));
 
@@ -97,9 +132,41 @@ describe('GastosService', () => {
     const resultado = await GastosService.getSummary('55 66');
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://api.test/gastos/resumen/bot?telegramId=55%2066',
+      'http://api.test/gastos/resumen/bot?telegramId=55+66',
       {},
     );
     expect(resultado).toMatchObject({ totalGeneral: 1000 });
+  });
+
+  it('adjunta el rango y las fechas al resumen', async () => {
+    fetchMock.mockResolvedValue(
+      respuestaJson({ totalGeneral: 500, porCategoria: [] }),
+    );
+
+    await GastosService.getSummary('55', {
+      rango: '15_DAYS',
+      desde: '2026-10-01',
+      hasta: '2026-10-15',
+    });
+
+    const url = String(fetchMock.mock.calls[0]?.[0]);
+    expect(url).toContain('rango=15_DAYS');
+    expect(url).toContain('desde=2026-10-01');
+    expect(url).toContain('hasta=2026-10-15');
+  });
+
+  it('crea una categoría con el nombre indicado', async () => {
+    fetchMock.mockResolvedValue(respuestaJson({ id: 20, nombre: 'Gimnasio' }));
+
+    const categoria = await GastosService.createCategory('Gimnasio');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://api.test/categorias',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ nombre: 'Gimnasio' }),
+      }),
+    );
+    expect(categoria).toEqual({ id: 20, nombre: 'Gimnasio' });
   });
 });

@@ -57,6 +57,8 @@ describe('IaService', () => {
       comercio: 'Coto',
       categoria: null,
       descripcion: null,
+      fecha: null,
+      rango: null,
     });
   });
 
@@ -71,6 +73,8 @@ describe('IaService', () => {
       comercio: null,
       categoria: null,
       descripcion: null,
+      fecha: null,
+      rango: null,
     });
   });
 

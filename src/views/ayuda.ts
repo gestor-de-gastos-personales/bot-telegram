@@ -6,6 +6,9 @@ export const MENSAJE_AYUDA = [
   '',
   '• Enviame un texto como "Gasté 1500 en el Coto" y lo analizo.',
   '• Enviame una foto de un comprobante y extraigo el gasto.',
-  '• Usá /resumen para ver cuánto llevás gastado este año.',
+  '• Antes de guardar, corregí escribiendo "el precio es 2500".',
+  '• Pedime "resumen de los últimos 15 días" y lo calculo.',
+  '• Usá /resumen para ver el total del año actual.',
+  '• Creá categorías con /categoria Gimnasio.',
   '• Usá /start para iniciar sesión o crear tu cuenta.',
 ].join('\n');
