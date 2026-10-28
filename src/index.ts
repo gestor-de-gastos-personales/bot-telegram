@@ -27,6 +27,7 @@ import {
 } from './views/autenticacion.js';
 import {
   construirVistaPrevia,
+  construirVistaPreviaRecurrente,
   tecladoConfirmacion,
 } from './views/gasto-preview.js';
 import {
@@ -97,6 +98,94 @@ async function pedirConfirmacion(
     parse_mode: 'HTML',
     reply_markup: tecladoConfirmacion(),
   });
+}
+
+function detectarPistaRecurrencia(texto?: string | null, gasto?: GastoAnalizado): string | null {
+  const t = (texto || '').toLowerCase();
+  const comercio = (gasto?.comercio || '').toLowerCase();
+  const desc = (gasto?.descripcion || '').toLowerCase();
+  const combinado = `${t} ${comercio} ${desc}`;
+
+  const patrones = [
+    /suscrip/i,
+    /abon[oa]/i,
+    /mensual/i,
+    /anual/i,
+    /renov/i,
+    /recurrent/i,
+    /se renueva/i,
+    /netflix/i,
+    /spotify/i,
+    /disney\+/i,
+    /amazon prime/i,
+    /prime video/i,
+    /youtube premium/i,
+    /hbo/i,
+    /paramount/i,
+    /star\+/i,
+    /apple music/i,
+    /icloud/i,
+    /google one/i,
+    /level\s*gim/i,
+    /smartfit/i,
+    /gimnasio/i,
+    /gym\b/i,
+    /claro/i,
+    /movistar/i,
+    /personal/i,
+    /telecentro/i,
+    /fibertel/i,
+    /cablevision/i,
+    /flow/i,
+    /direc tv/i,
+    /directv/i,
+    /internet\b/i,
+    /luz\b/i,
+    /agua\b/i,
+    /gas\b/i,
+  ];
+
+  for (const p of patrones) {
+    if (p.test(combinado)) {
+      const m = combinado.match(p);
+      if (m && m[0]) return m[0];
+      return 'recurrente';
+    }
+  }
+  return null;
+}
+
+/** Pregunta si el gasto es recurrente solo cuando hay pista de recurrencia. */
+async function preguntarRecurrenciaSiCorresponde(
+  ctx: BotContexto,
+  gasto: GastoAnalizado,
+  origen: 'texto' | 'imagen' = 'texto',
+  textoOriginal?: string,
+) {
+  if (gasto.monto === null || Number.isNaN(gasto.monto)) {
+    logger.warn({ gasto, origen }, 'Gasto sin monto válido, no se pide confirmación');
+    const aviso =
+      origen === 'imagen' ? mensajeNoEntendidoImagen() : mensajeNoEntendidoTexto();
+    return ctx.reply(aviso);
+  }
+
+  let hint = gasto.recurringHint;
+  if (!hint || !String(hint).trim()) {
+    hint = detectarPistaRecurrencia(textoOriginal, gasto);
+  }
+
+  if (hint && String(hint).trim()) {
+    const pista = String(hint).trim();
+    ctx.session.pendingRecurringCheck = { ...gasto, origen };
+    delete ctx.session.pendingExpense;
+    delete ctx.session.procesando;
+    await ctx.reply(
+      `Vi que dijiste "${pista}". ¿Querés registrar esto como un gasto que se repite? Respondé Sí o No.`,
+    );
+    return;
+  }
+
+  return pedirConfirmacion(ctx, gasto, origen);
 }
 
 /** Reenvía la vista previa del gasto pendiente tras una corrección. */
@@ -219,7 +308,13 @@ async function procesarEdicion(ctx: BotContexto, texto: string): Promise<boolean
 
 async function procesarFlujoRecurrente(ctx: BotContexto, texto: string, telegramId: string): Promise<boolean> {
   const paso = ctx.session.recurringStep;
-  if (!paso || !ctx.session.pendingRecurring) return false;
+  if (!paso) return false;
+  if (paso === 'ASK_FREQUENCY' && !ctx.session.pendingRecurring && !ctx.session.pendingExpense) {
+    return false;
+  }
+  if ((paso === 'ASK_IF_RECURRING' || paso === 'ASK_DAY') && !ctx.session.pendingRecurring) {
+    return false;
+  }
 
   const t = texto.toLowerCase().trim();
 
@@ -251,22 +346,27 @@ async function procesarFlujoRecurrente(ctx: BotContexto, texto: string, telegram
       return true;
     }
 
-    const gasto = ctx.session.pendingRecurring;
+    let gasto = ctx.session.pendingRecurring || ctx.session.pendingExpense;
+    if (!gasto && ctx.session.pendingRecurringCheck) {
+      gasto = ctx.session.pendingRecurringCheck as any;
+    }
     try {
       await GastosService.createRecurrente({
         usuarioId: 0,
         telegramId,
-        monto: gasto.monto,
-        comercio: gasto.comercio,
-        categoria: gasto.categoria,
-        descripcion: gasto.descripcion ?? gasto.comercio ?? '',
+        monto: gasto?.monto,
+        comercio: gasto?.comercio,
+        categoria: gasto?.categoria ?? 'Varios',
+        descripcion: gasto?.descripcion ?? gasto?.comercio ?? '',
         frecuencia,
         diaMes: frecuencia === 'MENSUAL' ? new Date().getDate() : null,
         diaSemana: frecuencia === 'SEMANAL' ? new Date().getDay() : null,
       });
       delete ctx.session.recurringStep;
       delete ctx.session.pendingRecurring;
-      await ctx.reply(`Listo. Se registrará automáticamente ${frecuencia.toLowerCase()}. Te aviso cada vez que lo registre.`);
+      await ctx.reply(
+        `Listo. Se registrará automáticamente ${frecuencia.toLowerCase()}. Te aviso cada vez que lo registre.`,
+      );
     } catch (error) {
       await ctx.reply(mensajeErrorGenerico(error));
     }
@@ -274,6 +374,47 @@ async function procesarFlujoRecurrente(ctx: BotContexto, texto: string, telegram
   }
 
   return false;
+}
+
+async function procesarRespuestaRecurrenciaAntesDeConfirmacion(
+  ctx: BotContexto,
+  texto: string,
+  telegramId: string,
+): Promise<boolean> {
+  if (!ctx.session.pendingRecurringCheck) return false;
+
+  const t = texto.toLowerCase().trim();
+  const gasto = ctx.session.pendingRecurringCheck;
+  const origen = gasto.origen ?? 'texto';
+
+  if (/^(si|sí|yes|s)\b/.test(t)) {
+    delete ctx.session.pendingRecurringCheck;
+    delete ctx.session.procesando;
+    ctx.session.pendingRecurring = { ...gasto, telegramId, quiereRecurrente: true };
+    delete (ctx.session.pendingRecurring as any).origen;
+    ctx.session.pendingExpense = { ...ctx.session.pendingRecurring };
+    delete (ctx.session.pendingExpense as any).origen;
+    delete (ctx.session.pendingExpense as any).telegramId;
+    delete (ctx.session.pendingExpense as any).quiereRecurrente;
+    ctx.session.recurringStep = 'ASK_FREQUENCY';
+    await ctx.reply('Lo voy a registrar como gasto recurrente.');
+    await ctx.reply(construirVistaPreviaRecurrente(ctx.session.pendingExpense), {
+      parse_mode: 'HTML',
+    });
+    await ctx.reply('¿Con qué frecuencia se repite? Responde: diario / semanal / mensual / anual');
+    return true;
+  }
+
+  if (/^(no|n)\b/.test(t)) {
+    const gastoComun = { ...gasto };
+    delete ctx.session.pendingRecurringCheck;
+    await ctx.reply('Ok, lo registro como gasto común.');
+    await pedirConfirmacion(ctx, gastoComun, origen);
+    return true;
+  }
+
+  await ctx.reply('Respondé Sí o No. ¿Querés registrar esto como un gasto que se repite?');
+  return true;
 }
 
 async function procesarEliminacion(ctx: BotContexto, texto: string, telegramId: string): Promise<boolean> {
@@ -360,7 +501,10 @@ async function procesarEdicionGastoExistente(ctx: BotContexto, texto: string, te
         return true;
       }
       (ctx.session as any).pendingEdit = { gastoId: gasto.id, gasto };
-      await ctx.reply(`Gasto actual: ${gasto.descripcion ?? ''} - $${gasto.monto ?? 0} (${String(gasto.fecha ?? '').slice(0, 10)})\n\n¿Qué querés modificar? Escribime el nuevo valor, por ejemplo "el precio es 8000".`);
+      await ctx.reply(
+        `Gasto actual: ${gasto.descripcion ?? ''} - $${gasto.monto ?? 0} (${String(gasto.fecha ?? '').slice(0, 10)})\n\n¿Qué querés modificar? Escribime el nuevo valor, por ejemplo "el precio es 8000".`,
+      );
+      return true;
     } catch (error) {
       await ctx.reply(mensajeDeError(error));
     }
@@ -440,7 +584,7 @@ async function analizarGastoTexto(ctx: BotContexto, texto: string) {
       return;
     }
 
-    await pedirConfirmacion(ctx, resultado, 'texto');
+    await preguntarRecurrenciaSiCorresponde(ctx, resultado, 'texto', texto);
   } catch (error) {
     logger.error({ error: mensajeDeError(error) }, 'Error al analizar gasto con IA');
     await ctx.reply(mensajeErrorGenerico(error));
@@ -492,7 +636,7 @@ async function procesarFoto(ctx: BotContexto, foto: PhotoSize | undefined) {
 
     const buffer = await descargarComprobante(foto.file_id);
     const gasto = await IaService.analizarImagen(buffer, 'comprobante.jpg');
-    await pedirConfirmacion(ctx, gasto, 'imagen');
+    await preguntarRecurrenciaSiCorresponde(ctx, gasto, 'imagen');
   } catch (error) {
     logger.error({ error: mensajeDeError(error), telegramId }, 'Error al procesar foto');
     await ctx.reply(mensajeErrorComprobante(mensajeDeError(error)));
@@ -571,9 +715,13 @@ bot.callbackQuery('confirm_gasto', async (ctx) => {
     delete ctx.session.pendingExpense;
     delete ctx.session.procesando;
     await ctx.reply(MENSAJE_GASTO_GUARDADO);
-    ctx.session.recurringStep = 'ASK_IF_RECURRING';
-    ctx.session.pendingRecurring = { ...gastoGuardado, telegramId };
-    await ctx.reply('¿Este gasto se repite? Podés responder Sí/No.');
+    // Mantener flujo de recurrencia si está en curso (pregunta previa)
+    if (ctx.session.recurringStep === 'ASK_FREQUENCY' && ctx.session.pendingRecurring?.quiereRecurrente) {
+      // ya se pidió la frecuencia en el flujo previo
+    } else {
+      delete ctx.session.recurringStep;
+      delete ctx.session.pendingRecurring;
+    }
   } catch (error) {
     delete ctx.session.procesando;
     await ctx.reply(mensajeErrorGuardado(mensajeDeError(error)));
@@ -595,6 +743,7 @@ bot.callbackQuery('cancel_gasto', async (ctx) => {
   delete ctx.session.procesando;
   delete ctx.session.recurringStep;
   delete ctx.session.pendingRecurring;
+  delete ctx.session.pendingRecurringCheck;
 });
 
 // 4. Manejador de Mensajes de Texto
@@ -613,6 +762,10 @@ bot.on('message:text', async (ctx) => {
     },
     'Mensaje de texto recibido',
   );
+
+  if (await procesarRespuestaRecurrenciaAntesDeConfirmacion(ctx, texto, telegramId)) {
+    return;
+  }
 
   const consumido =
     (await procesarAutenticacion(ctx, texto, telegramId, nombre)) ||

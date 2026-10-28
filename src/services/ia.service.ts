@@ -15,6 +15,7 @@ export interface GastoAnalizado {
   descripcion: string | null;
   fecha: string | null;
   rango: RangoResumen | null;
+  recurringHint?: string | null;
 }
 
 const servicioIa = () =>
@@ -47,7 +48,13 @@ function normalizarGasto(payload: unknown): GastoAnalizado {
         ? fecha
         : null,
     rango: esRangoResumen(data.rango) ? data.rango : null,
-  };
+    recurringHint: (() => {
+      const rh = (data as Record<string, unknown>).recurringHint;
+      if (typeof rh === 'string') return rh;
+      if (rh === null) return null;
+      return undefined;
+    })(),
+  } as GastoAnalizado;
 }
 
 export class IaService {

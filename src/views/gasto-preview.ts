@@ -36,6 +36,24 @@ export function construirVistaPrevia(gasto: GastoAnalizado): string {
   ].join('\n');
 }
 
+export function construirVistaPreviaRecurrente(gasto: GastoAnalizado): string {
+  return [
+    '📊 <b>Vista previa del gasto</b>',
+    '',
+    `💰 <b>Monto:</b> $${gasto.monto ?? '-'}`,
+    `🏪 <b>Comercio:</b> ${escapeHtml(gasto.comercio ?? '-')}`,
+    `🏷️ <b>Categoría:</b> ${escapeHtml(gasto.categoria ?? 'Varios')}`,
+    `📝 <b>Descripción:</b> ${escapeHtml(gasto.descripcion ?? '-')}`,
+    `📅 <b>Fecha:</b> ${formatearFechaGasto(gasto.fecha)}`,
+    '',
+    '⏰ <b>Se registrará cada:</b> por definir',
+    '',
+    PISTA_EDICION,
+    '',
+    '¿Deseas guardar este registro?',
+  ].join('\n');
+}
+
 /**
  * Botones para confirmar o descartar el gasto pendiente.
  */
