@@ -417,6 +417,14 @@ async function procesarRespuestaRecurrenciaAntesDeConfirmacion(
   return true;
 }
 
+function formatearFechaCorta(fecha?: string): string {
+  if (!fecha) return '-';
+  const s = String(fecha);
+  if (s.includes('T')) return s.slice(0, 10);
+  if (/^\d{2}-\d{2}-\d{4}$/.test(s)) return s.split('-').reverse().join('-');
+  return s;
+}
+
 async function procesarEliminacion(ctx: BotContexto, texto: string, telegramId: string): Promise<boolean> {
   const t = texto.toLowerCase().trim();
   if (ctx.session.pendingDelete) {
@@ -426,9 +434,9 @@ async function procesarEliminacion(ctx: BotContexto, texto: string, telegramId: 
       try {
         await GastosService.deleteGasto(p.gastoId, telegramId);
         delete ctx.session.pendingDelete;
-        await ctx.reply(`Eliminado: ${p.descripcion} - $${p.monto} (${String(p.fecha).slice(0, 10)})`);
+        await ctx.reply(`Eliminado: ${p.descripcion} - $${p.monto} (${formatearFechaCorta(p.fecha)})`);
       } catch (error) {
-        await ctx.reply(mensajeErrorGenerico(error));
+        await ctx.reply(mensajeDeError(error));
       }
       return true;
     }
@@ -441,10 +449,13 @@ async function procesarEliminacion(ctx: BotContexto, texto: string, telegramId: 
     return true;
   }
 
-  if (/(elimina|borr[áa]|sac[áa]|quit[áa])/.test(t) && /(último|ultimo)/.test(t)) {
+  if (/(elimina|borrar|borr[áa]|sac[áa]|quit[áa])/.test(t) && /(último|ultimo)/.test(t)) {
     let comercio: string | undefined;
-    const match = t.match(/(?:de|en)\s+([a-záéíóúüñ0-9\s]+)$/);
-    if (match && match[1]) comercio = match[1].trim();
+    const match = t.match(/(?:de|en|del)\s+([a-záéíóúüñ0-9\s]+?)(?:\s|$)/);
+    if (match && match[1]) {
+      const cand = match[1].trim();
+      if (cand && !/^(gasto|gastos)$/.test(cand)) comercio = cand;
+    }
     try {
       const gasto: any = await GastosService.getUltimoGasto(telegramId, comercio ? { comercio } : {});
       if (!gasto || typeof gasto.id !== 'number') {
@@ -460,7 +471,7 @@ async function procesarEliminacion(ctx: BotContexto, texto: string, telegramId: 
       if (gasto.categoria && gasto.categoria.nombre) pendiente.categoria = gasto.categoria.nombre;
       (ctx.session as any).pendingDelete = pendiente;
       await ctx.reply(
-        `¿Eliminar este gasto?\n\n${gasto.descripcion ?? ''} - $${gasto.monto ?? 0}\nFecha: ${String(gasto.fecha ?? '').slice(0, 10)}\nCategoría: ${gasto.categoria && gasto.categoria.nombre ? gasto.categoria.nombre : '-'}`,
+        `¿Eliminar este gasto?\n\n${gasto.descripcion ?? ''} - $${gasto.monto ?? 0}\nFecha: ${formatearFechaCorta(gasto.fecha)}\nCategoría: ${gasto.categoria && gasto.categoria.nombre ? gasto.categoria.nombre : '-'}`,
       );
     } catch (error) {
       await ctx.reply(mensajeDeError(error));
@@ -474,26 +485,56 @@ async function procesarEdicionGastoExistente(ctx: BotContexto, texto: string, te
   const t = texto.toLowerCase().trim();
   if (ctx.session.pendingEdit) {
     const edicion = ctx.session.pendingEdit as any;
-    const monto = interpretarEdicion({ intent: 'CREATE_EXPENSE', monto: 0, comercio: null, categoria: null, descripcion: null, fecha: null, rango: null } as GastoAnalizado, texto);
-    if (monto?.cambio?.includes('Monto')) {
+    const candidato = interpretarEdicion({ intent: 'CREATE_EXPENSE', monto: 0, comercio: null, categoria: null, descripcion: null, fecha: null, rango: null } as GastoAnalizado, texto);
+    if (candidato?.gasto) {
+      const datos: Record<string, unknown> = {};
+      if (candidato.cambio?.includes('Monto') && candidato.gasto.monto !== null && candidato.gasto.monto !== undefined) {
+        datos.monto = candidato.gasto.monto;
+      } else {
+        const m = t.match(/(?:a|por|es|son)\s*\$?\s*(\d+(?:[.,]\d+)?)/);
+        if (m && m[1]) datos.monto = Number(m[1].replace(',', '.'));
+      }
+      if (candidato.cambio?.includes('Comercio') && candidato.gasto.comercio) {
+        datos.comercio = candidato.gasto.comercio;
+        datos.descripcion = candidato.gasto.comercio;
+      } else {
+        const c = t.match(/(?:comercio|negocio|lugar)\s+(?:a|es|por)\s+([a-záéíóúüñ0-9\s]+)/);
+        if (c && c[1]) {
+          const v = c[1].trim();
+          if (v && !/^(monto|precio|fecha|categoria)$/.test(v)) { datos.comercio = v; datos.descripcion = v; }
+        }
+      }
+      if (candidato.cambio?.includes('Categor') || candidato.gasto.categoria) {
+        if (candidato.gasto.categoria) datos.categoria = candidato.gasto.categoria;
+      }
+      if (candidato.cambio?.includes('Fecha') && candidato.gasto.fecha) {
+        datos.fecha = candidato.gasto.fecha;
+      }
+      if (Object.keys(datos).length === 0) {
+        await ctx.reply('Decime el cambio que querés hacer. Ejemplo: "cambiá el monto a 8000" o "cambiá el comercio a Shell".');
+        return true;
+      }
       try {
-        await GastosService.updateGasto(edicion.gastoId, telegramId, { monto: monto.gasto.monto });
+        const actualizado = await GastosService.updateGasto(edicion.gastoId, telegramId, datos);
         delete ctx.session.pendingEdit;
-        await ctx.reply(`Actualizado. Nuevo monto: $${monto.gasto.monto}`);
+        const desc = (actualizado as any)?.descripcion ?? datos.comercio ?? edicion?.gasto?.descripcion ?? '';
+        const montoAct = (actualizado as any)?.monto ?? datos.monto ?? edicion?.gasto?.monto ?? '';
+        const fechaAct = (actualizado as any)?.fecha ?? datos.fecha ?? edicion?.gasto?.fecha ?? '';
+        await ctx.reply(`Actualizado.\n${desc} - $${montoAct}\nFecha: ${formatearFechaCorta(String(fechaAct))}`);
       } catch (error) {
-        await ctx.reply(mensajeErrorGenerico(error));
+        await ctx.reply(mensajeDeError(error));
       }
       return true;
     }
-    await ctx.reply('Decime el nuevo monto o el cambio que querés hacer.');
+    await ctx.reply('Decime el cambio que querés hacer. Ejemplo: "cambiá el monto a 8000".');
     return true;
   }
 
-  if (/(modific|cambi|correg)/.test(t) && /(último|ultimo)/.test(t)) {
+  if (/(modific|cambi|correg|editar)/.test(t) && /(último|ultimo)/.test(t)) {
     let comercio: string | undefined;
-    const match = t.match(/(?:de|en)\s+([a-záéíóúüñ0-9\s]+?)(?:\s+a|\s+por|$)/);
+    const match = t.match(/(?:de|en|del)\s+([a-záéíóúüñ0-9\s]+?)(?:\s+a|\s+por|\s+al|$)/);
     const comercioMatch = match && match[1] ? match[1].trim() : undefined;
-    if (comercioMatch) comercio = comercioMatch;
+    if (comercioMatch && !/^(gasto|gastos|monto|precio)$/.test(comercioMatch)) comercio = comercioMatch;
     try {
       const gasto: any = await GastosService.getUltimoGasto(telegramId, comercio ? { comercio } : {});
       if (!gasto || typeof gasto.id !== 'number') {
@@ -502,8 +543,36 @@ async function procesarEdicionGastoExistente(ctx: BotContexto, texto: string, te
       }
       (ctx.session as any).pendingEdit = { gastoId: gasto.id, gasto };
       await ctx.reply(
-        `Gasto actual: ${gasto.descripcion ?? ''} - $${gasto.monto ?? 0} (${String(gasto.fecha ?? '').slice(0, 10)})\n\n¿Qué querés modificar? Escribime el nuevo valor, por ejemplo "el precio es 8000".`,
+        `Gasto actual: ${gasto.descripcion ?? ''} - $${gasto.monto ?? 0} (${formatearFechaCorta(gasto.fecha)})${gasto.categoria?.nombre ? `\nCategoría: ${gasto.categoria.nombre}` : ''}\n\n¿Qué querés modificar? Escribime el cambio, por ejemplo "cambiá el monto a 8000" o "cambiá el comercio a Shell".`,
       );
+      return true;
+    } catch (error) {
+      await ctx.reply(mensajeDeError(error));
+    }
+    return true;
+  }
+  return false;
+}
+
+async function procesarMostrarGasto(ctx: BotContexto, texto: string, telegramId: string): Promise<boolean> {
+  const t = texto.toLowerCase().trim();
+  if (/(ver|mostrar|consultar|mostrame)/.test(t) && /(último|ultimo)/.test(t)) {
+    let comercio: string | undefined;
+    const match = t.match(/(?:de|en|del)\s+([a-záéíóúüñ0-9\s]+?)$/);
+    if (match && match[1]) {
+      const cand = match[1].trim();
+      if (cand && !/^(gasto|gastos)$/.test(cand)) comercio = cand;
+    }
+    try {
+      const gasto: any = await GastosService.getUltimoGasto(telegramId, comercio ? { comercio } : {});
+      if (!gasto || typeof gasto.id !== 'number') {
+        await ctx.reply('No encontré un gasto para mostrar con esos filtros.');
+        return true;
+      }
+      await ctx.reply(
+        `Gasto #${gasto.id}\nDescripción: ${gasto.descripcion ?? '-'}\nMonto: $${gasto.monto ?? 0}\nFecha: ${formatearFechaCorta(gasto.fecha)}\nCategoría: ${gasto.categoria?.nombre ?? '-'}`,
+      );
+      (ctx.session as any).pendingShow = { gastoId: gasto.id, gasto };
       return true;
     } catch (error) {
       await ctx.reply(mensajeDeError(error));
@@ -771,6 +840,7 @@ bot.on('message:text', async (ctx) => {
     (await procesarAutenticacion(ctx, texto, telegramId, nombre)) ||
     (await procesarEdicion(ctx, texto)) ||
     (await procesarFlujoRecurrente(ctx, texto, telegramId)) ||
+    (await procesarMostrarGasto(ctx, texto, telegramId)) ||
     (await procesarEliminacion(ctx, texto, telegramId)) ||
     (await procesarEdicionGastoExistente(ctx, texto, telegramId));
 

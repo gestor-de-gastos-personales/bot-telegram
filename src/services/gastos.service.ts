@@ -134,6 +134,14 @@ export class GastosService {
     );
   }
 
+  static async getGastoById(gastoId: number, telegramId: string): Promise<GastoEncontrado> {
+    return pedirJson<GastoEncontrado>(
+      `${apiGastos()}/gastos/${gastoId}?telegramId=${encodeURIComponent(telegramId)}`,
+      {},
+      ERROR_API,
+    );
+  }
+
   static async deleteGasto(gastoId: number, telegramId: string) {
     const response = await fetch(
       `${apiGastos()}/gastos/${gastoId}?telegramId=${encodeURIComponent(telegramId)}`,
@@ -142,7 +150,11 @@ export class GastosService {
     if (!response.ok) {
       throw new Error(`api-gastos respondió ${response.status}`);
     }
-    return response.json();
+    try {
+      return await response.json();
+    } catch {
+      return { ok: true };
+    }
   }
 
   static async updateGasto(gastoId: number, telegramId: string, datos: Record<string, unknown>) {
@@ -157,7 +169,11 @@ export class GastosService {
     if (!response.ok) {
       throw new Error(`api-gastos respondió ${response.status}`);
     }
-    return response.json();
+    try {
+      return await response.json();
+    } catch {
+      return {};
+    }
   }
 
   static async createRecurrente(datos: Record<string, unknown>) {

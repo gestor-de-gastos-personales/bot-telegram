@@ -17,7 +17,8 @@ export interface SessionData {
   recurringStep?: 'ASK_IF_RECURRING' | 'ASK_FREQUENCY' | 'ASK_DAY' | 'CONFIRM_AFTER_RECURRING';
   pendingRecurring?: GastoAnalizado & { telegramId?: string; quiereRecurrente?: boolean };
   pendingDelete?: { gastoId: number; monto: number; descripcion: string; fecha: string; categoria?: string };
-  pendingEdit?: { gastoId: number; gasto: Record<string, unknown> };
+  pendingEdit?: { gastoId: number; gasto: Record<string, unknown>; campoPendiente?: string };
+  pendingShow?: { gastoId: number; gasto: Record<string, unknown> };
   /** Gasto con pista de recurrencia esperando respuesta antes de confirmación */
   pendingRecurringCheck?: GastoAnalizado & { origen?: 'texto' | 'imagen' };
 }
