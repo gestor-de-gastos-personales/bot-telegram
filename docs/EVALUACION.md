@@ -3,20 +3,20 @@
 
 > Documento **generado automáticamente** por la cátedra de Programación III (RepoSense + análisis de calidad + constancia). **No editar a mano**: se regenera en cada evaluación.
 > Rama evaluada: `main`. Análisis **heurístico** (regex + métricas): es una criba para orientar la revisión, **no una nota**.
-> Generado: 2026-10-28.
+> Generado: 2026-10-29.
 
 ## 1. Veredicto
 
 | Aspecto | Resultado |
 |---|---|
 | Tipo de proyecto | frontend |
-| Índice de calidad de servicios | **40/100** (mínimo 60) |
+| Índice de calidad de servicios | **19/100** (mínimo 60) |
 | Criterios cumplidos | **12/15** |
 | Aprobado (semáforo) | **NO** |
-| Código (LOC) | 1,423 |
-| Archivos de código | 25 |
-| Tests (archivos) | 7 |
-| Cobertura de líneas | 48.6% (mínimo 80%) |
+| Código (LOC) | 2,543 |
+| Archivos de código | 31 |
+| Tests (archivos) | 9 |
+| Cobertura de líneas | 32.0% (mínimo 80%) |
 | Capas detectadas | vistas, servicios, estado |
 
 > **Aprobado** exige cumplir **todos** los criterios del semáforo. No es una nota: sirve para ordenar y priorizar la revisión.
@@ -25,7 +25,7 @@
 
 | Autor | Commits | Código (LOC) | Tests (LOC) | Docs (LOC) | Días activos | % del código |
 |---|---:|---:|---:|---:|---:|---:|
-| blevatino | 15 | 949 | 721 | 1 | 3 | 100% |
+| blevatino | 25 | 1,950 | 1,004 | 1 | 5 | 100% |
 
 > _El LOC de autoría lo calcula RepoSense sobre el historial y puede diferir del LOC de código del análisis de calidad (que mira solo el estado de `main`)._
 
@@ -35,7 +35,7 @@
 
 | Alumno | Sesiones | Cumplimiento | Pausa | Recencia | IC | Nivel | Para subir de nivel |
 |---|--:|--:|--:|--:|--:|--|--|
-| blevatino | 12 | 55% | 19 d | 57% | **44** | No aprueba | Pausa 19 d (máx. 10 d) |
+| blevatino | 15 | 68% | 19 d | 100% | **58** | No aprueba | Pausa 19 d (máx. 10 d) |
 
 > Para aprobar el IC: **2 sesiones por semana** sostenidas, sin pausas mayores a **10 días** y con actividad en las **últimas 2 semanas**. Se excluyen merges, bots y al docente. Zona horaria UTC-3.
 
@@ -47,7 +47,7 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 
 - **Qué mide:** Un resumen numérico (0-100) que combina todas las señales y métricas del análisis, con topes duros por duplicación.
 - **Por qué importa:** Ordena y prioriza la revisión: un índice bajo indica varias señales que conviene mirar juntas.
-- **Tu resultado:** índice **40/100** _(mínimo 60)_
+- **Tu resultado:** índice **19/100** _(mínimo 60)_
 - **Para investigar la causa:**
     - ¿En qué momento del proyecto se concentraron los problemas (arranque, integración de partes, cierre)?
     - ¿El índice bajó por muchas señales chicas o por una o dos graves?
@@ -57,7 +57,7 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 
 - **Qué mide:** Porcentaje de bloques de código repetidos (similitud) en el repositorio.
 - **Por qué importa:** Cada copia se mantiene por separado: un arreglo hay que repetirlo y los defectos se multiplican.
-- **Tu resultado:** **5.2%** de duplicación _(máximo 15%)_
+- **Tu resultado:** **5.8%** de duplicación _(máximo 15%)_
 
 ### 3. Secretos hardcodeados (SEC) — A REVISAR
 
@@ -97,7 +97,7 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 
 - **Qué mide:** Uso de `any` en TypeScript, que desactiva la verificación de tipos.
 - **Por qué importa:** Se pierde la ayuda del compilador justo donde los datos vienen de afuera (API, formularios).
-- **Tu resultado:** **0** uso(s) de `any` _(máximo 2)_
+- **Tu resultado:** **1** uso(s) de `any` _(máximo 2)_
 
 ### 9. Componente demasiado grande (BigC) — OK
 
@@ -115,25 +115,25 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 
 - **Qué mide:** Complejidad ciclomática: cantidad de caminos posibles dentro de una función (condicionales, bucles, casos).
 - **Por qué importa:** Muchos caminos = difícil de seguir y de probar; suelen esconderse casos sin cubrir.
-- **Tu resultado:** **1** bloque(s) de complejidad alta _(máximo 5 por 1000 LOC (tenés 1423 LOC))_
+- **Tu resultado:** **11** bloque(s) de complejidad alta _(máximo 5 por 1000 LOC (tenés 2543 LOC))_
 
 ### 12. Funciones/métodos largos o con muchos parámetros (Tam) — OK
 
 - **Qué mide:** Tamaño de las funciones/métodos y cantidad de parámetros.
 - **Por qué importa:** Una función que hace varias cosas cuesta leerla, nombrarla y reutilizarla.
-- **Tu resultado:** **5** función/método(s) largos o con muchos parámetros _(máximo 10 por 1000 LOC)_
+- **Tu resultado:** **14** función/método(s) largos o con muchos parámetros _(máximo 10 por 1000 LOC)_
 
 ### 13. Acoplamiento alto (Acop) — OK
 
 - **Qué mide:** Cuánto depende una unidad de las partes internas de otra.
 - **Por qué importa:** Piezas muy enlazadas hacen que un cambio se propague y que sea difícil reemplazar partes.
-- **Tu resultado:** **1** unidad(es) con acoplamiento alto _(máximo 2 por 1000 LOC)_
+- **Tu resultado:** **3** unidad(es) con acoplamiento alto _(máximo 2 por 1000 LOC)_
 
 ### 14. Cobertura de tests (Cob) — A REVISAR
 
 - **Qué mide:** Porcentaje de líneas de código ejecutadas por la suite de tests (cobertura real, no cantidad de archivos de test).
 - **Por qué importa:** Un test que existe pero no ejecuta el código no protege de nada: la cobertura muestra qué partes quedan sin verificar.
-- **Tu resultado:** **48.6%** de líneas cubiertas _(mínimo 80% de líneas)_
+- **Tu resultado:** **32.0%** de líneas cubiertas · fuente: ejecución: vitest _(mínimo 80% de líneas)_
 - **Para investigar la causa:**
     - ¿Qué módulos o ramas del sistema nunca se ejecutan en los tests?
     - ¿Los tests prueban el camino principal y los errores, o solo el caso feliz?
@@ -143,7 +143,7 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 
 - **Qué mide:** Cantidad de vistas/componentes de pantalla del frontend.
 - **Por qué importa:** El frontend se mide por pantallas: pocas vistas sugiere poca cobertura de la interfaz pedida.
-- **Tu resultado:** **8** vista(s)/componente(s) _(mínimo 8)_
+- **Tu resultado:** **10** vista(s)/componente(s) _(mínimo 8)_
 
 ## 5. Qué falta para aprobar
 
@@ -151,9 +151,9 @@ Criterios que hoy están en rojo y qué habría que cambiar para alcanzar el niv
 
 | Criterio | Resultado actual | Meta | Qué arreglar |
 |---|---|---|---|
-| Índice de calidad de servicios (indice) | índice **40/100** | mínimo 60 | Subir el índice a ≥60 corrigiendo primero las señales de más peso: duplicación, secretos, SQL y capas. |
+| Índice de calidad de servicios (indice) | índice **19/100** | mínimo 60 | Subir el índice a ≥60 corrigiendo primero las señales de más peso: duplicación, secretos, SQL y capas. |
 | Secretos hardcodeados (SEC) | **1** secreto(s) hardcodeado(s) | máximo 0 | Leer credenciales de variables de entorno o del gestor de secretos y sacarlas del código; 0 casos. |
-| Cobertura de tests (Cob) | **48.6%** de líneas cubiertas | mínimo 80% de líneas | Publicar cobertura (o correr la suite con coverage) y cubrir ≥80% de líneas. |
+| Cobertura de tests (Cob) | **32.0%** de líneas cubiertas · fuente: ejecución: vitest | mínimo 80% de líneas | Publicar cobertura (o correr la suite con coverage) y cubrir ≥80% de líneas. |
 
 > Empezá por las señales de seguridad (**SEC**, **SQL**) y por la **duplicación**: son las que más pesan en el índice y las más rápidas de verificar a ojo.
 
