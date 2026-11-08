@@ -57,7 +57,7 @@ describe('vista previa del gasto', () => {
   it('incluye monto, comercio, categoría y descripción escapados', () => {
     const vista = construirVistaPrevia(gasto);
 
-    expect(vista).toContain('$1500');
+    expect(vista).toContain('$1.500');
     expect(vista).toContain('Coto &lt;Centro&gt;');
     expect(vista).toContain('Alimentación &amp; Bebidas');
     expect(vista).toContain('Compra "semanal"');
@@ -74,9 +74,9 @@ describe('vista previa del gasto', () => {
       rango: null,
     });
 
-    expect(vista).toContain('Monto:</b> $-');
+    expect(vista).toContain('Monto:</b> $0');
     expect(vista).toContain('Categoría:</b> Varios');
-    expect(vista).toContain('Comercio:</b> -');
+    expect(vista).toContain('Comercio:</b> Sin comercio');
   });
 
   it('arma el teclado de confirmación con las dos acciones', () => {
@@ -101,9 +101,9 @@ describe('vista de resumen', () => {
     const texto = formatearResumen(resumen);
 
     expect(texto).toContain('Resumen de 10/2026');
-    expect(texto).toContain('Total:</b> $3000');
-    expect(texto).toContain('Alimentación &amp; Bebidas: $2000 (66.67%)');
-    expect(texto).toContain('Transporte: $1000 (33.33%)');
+    expect(texto).toContain('Total gastado:</b> $3.000');
+    expect(texto).toContain('Alimentación &amp; Bebidas — $2.000 (66.67%)');
+    expect(texto).toContain('Transporte — $1.000 (33.33%)');
   });
 
   it('avisa cuando no hay gastos en el período', () => {
@@ -118,6 +118,7 @@ describe('vista de resumen', () => {
   });
 
   it.each([
+    ['TODAY', 'hoy'],
     ['WEEK', 'esta semana'],
     ['15_DAYS', 'los últimos 15 días'],
     ['MONTH', 'este mes'],
@@ -138,6 +139,23 @@ describe('vista de resumen', () => {
 
     expect(texto).toContain(etiqueta);
     expect(ETIQUETAS_RANGO[rango]).toBe(etiqueta);
+  });
+
+  it('nunca deja el período sin etiqueta cuando la API devuelve un rango', () => {
+    const texto = formatearResumen({
+      periodo: {
+        mes: null,
+        anio: 2026,
+        rango: 'TODAY',
+        fechaInicio: '2026-11-06T00:00:00.000Z',
+        fechaFin: '2026-11-06T23:59:59.000Z',
+      },
+      totalGeneral: 100,
+      porCategoria: [],
+    });
+
+    expect(texto).toContain('Resumen de hoy');
+    expect(texto).not.toContain('undefined');
   });
 });
 
@@ -161,8 +179,8 @@ describe('mensajes de error', () => {
 
 describe('mensajes estáticos', () => {
   it('define los textos de confirmación y ayuda', () => {
-    expect(MENSAJE_GASTO_GUARDADO).toContain('Gasto registrado');
-    expect(MENSAJE_CANCELADO).toContain('cancelado');
+    expect(MENSAJE_GASTO_GUARDADO).toContain('Gasto guardado');
+    expect(MENSAJE_CANCELADO).toContain('Cancelado');
     expect(MENSAJE_CUENTA_CREADA).toContain('Cuenta creada');
     expect(MENSAJE_AYUDA).toContain('/resumen');
   });

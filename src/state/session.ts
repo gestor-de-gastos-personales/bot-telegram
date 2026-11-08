@@ -1,4 +1,5 @@
 import type { GastoAnalizado } from '../services/ia.service.js';
+import type { CampoEditable } from '../views/acciones.js';
 
 export type PasoAutenticacion = 'AWAITING_EMAIL' | 'AWAITING_PASSWORD';
 
@@ -18,6 +19,7 @@ export interface SessionData {
   pendingRecurring?: GastoAnalizado & { telegramId?: string; quiereRecurrente?: boolean };
   pendingDelete?: { gastoId: number; monto: number; descripcion: string; fecha: string; categoria?: string };
   pendingEdit?: { gastoId: number; gasto: Record<string, unknown>; campoPendiente?: string };
+  pendingCampoEdit?: { gastoId: number; campo: CampoEditable };
   pendingShow?: { gastoId: number; gasto: Record<string, unknown> };
   /** Gasto con pista de recurrencia esperando respuesta antes de confirmación */
   pendingRecurringCheck?: GastoAnalizado & { origen?: 'texto' | 'imagen' };
@@ -43,5 +45,6 @@ export function limpiarSesion(session: SessionData): void {
   delete session.pendingRecurring;
   delete session.pendingDelete;
   delete session.pendingEdit;
+  delete session.pendingCampoEdit;
   delete session.pendingRecurringCheck;
 }

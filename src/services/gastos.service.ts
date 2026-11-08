@@ -1,6 +1,7 @@
 import { baseUrl, pedirJson, postJson } from './http.js';
 import type { OpcionesError } from './http.js';
 import type { RangoResumen } from '../dominio/rango.js';
+import { LIMITE_POR_PAGINA } from '../views/acciones.js';
 
 export interface GastoPayload {
   monto: number | null;
@@ -42,11 +43,19 @@ export interface CategoriaCreada {
 
 export interface GastoEncontrado {
   id: number;
-  monto: number;
-  descripcion: string;
-  fecha: string;
-  categoria?: { nombre: string };
+  monto: number | string;
+  descripcion?: string | null;
+  fecha?: string | null;
+  categoria?: { nombre?: string | null } | null;
   usuario?: { telegramId?: string };
+}
+
+/** Metadatos de paginación que devuelve GET /gastos/ultimos. */
+export interface MetaUltimos {
+  page?: number;
+  limit?: number;
+  total?: number;
+  totalPages?: number;
 }
 
 export interface GastoRecurrente {
@@ -196,6 +205,18 @@ export class GastosService {
     return postJson<unknown>(
       `${apiGastos()}/gastos/recurrentes/ejecutar`,
       reglaId ? { reglaId } : {},
+      ERROR_API,
+    );
+  }
+
+  /** Obtiene los últimos gastos del usuario paginados. */
+  static async getUltimos(
+    telegramId: string,
+    { limit = LIMITE_POR_PAGINA, page = 1 } = {},
+  ): Promise<{ data: GastoEncontrado[]; meta: MetaUltimos }> {
+    return pedirJson<{ data: GastoEncontrado[]; meta: MetaUltimos }>(
+      `${apiGastos()}/gastos/ultimos?telegramId=${telegramId}&limit=${limit}&page=${page}`,
+      {},
       ERROR_API,
     );
   }
