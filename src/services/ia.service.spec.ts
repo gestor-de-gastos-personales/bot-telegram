@@ -59,6 +59,9 @@ describe('IaService', () => {
       descripcion: null,
       fecha: null,
       rango: null,
+      recurringHint: null,
+      searchHint: null,
+      campos: null,
     });
   });
 
@@ -75,6 +78,9 @@ describe('IaService', () => {
       descripcion: null,
       fecha: null,
       rango: null,
+      recurringHint: null,
+      searchHint: null,
+      campos: null,
     });
   });
 

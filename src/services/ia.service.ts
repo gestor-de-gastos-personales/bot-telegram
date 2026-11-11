@@ -16,6 +16,10 @@ export interface GastoAnalizado {
   fecha: string | null;
   rango: RangoResumen | null;
   recurringHint?: string | null;
+  /** "ultimo" cuando la acción apunta al gasto más reciente. */
+  searchHint?: string | null;
+  /** Campos a modificar cuando la IA ya interpretó una edición. */
+  campos?: Record<string, unknown> | null;
 }
 
 const servicioIa = () =>
@@ -48,12 +52,13 @@ function normalizarGasto(payload: unknown): GastoAnalizado {
         ? fecha
         : null,
     rango: esRangoResumen(data.rango) ? data.rango : null,
-    recurringHint: (() => {
-      const rh = (data as Record<string, unknown>).recurringHint;
-      if (typeof rh === 'string') return rh;
-      if (rh === null) return null;
-      return undefined;
-    })(),
+    recurringHint:
+      typeof data.recurringHint === 'string' ? data.recurringHint : null,
+    searchHint: typeof data.searchHint === 'string' ? data.searchHint : null,
+    campos:
+      data.campos && typeof data.campos === 'object' && !Array.isArray(data.campos)
+        ? (data.campos as Record<string, unknown>)
+        : null,
   } as GastoAnalizado;
 }
 
