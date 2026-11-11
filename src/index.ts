@@ -46,7 +46,17 @@ import {
   mensajeNoEntendidoTexto,
 } from './views/fallbacks.js';
 import { MENSAJE_ERROR_RESUMEN, formatearResumen } from './views/resumen.js';
-import { MENSAJE_AYUDA } from './views/ayuda.js';
+import { MENSAJE_AYUDA, construirTecladoAyudaRapido } from './views/ayuda.js';
+import { construirTecladoDespuesDeGuardar } from './views/comandos.js';
+import { manejarEliminarComando } from './handlers/eliminar.js';
+import {
+  manejarModificarComando,
+  procesarCampoEditPendiente,
+} from './handlers/modificar.js';
+import { registrarCallbacksDeAcciones } from './callbacks.js';
+import { manejarGraficoComando } from './handlers/grafico.js';
+import { manejarHistorialComando } from './handlers/historial.js';
+import { manejarResumenComando } from './handlers/resumen.js';
 import {
   MENSAJE_CATEGORIA_INVALIDA,
   mensajeCategoriaCreada,
@@ -54,16 +64,35 @@ import {
   mensajeUsoCategoria,
 } from './views/categoria.js';
 
-type BotContexto = Context & SessionFlavor<SessionData>;
+export type BotContexto = Context & SessionFlavor<SessionData>;
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 if (!token) {
   throw new Error('TELEGRAM_BOT_TOKEN no está definido en el archivo .env');
 }
 
-const bot = new Bot<BotContexto>(token);
+export const bot = new Bot<BotContexto>(token);
 
 bot.use(session({ initial: crearSesionInicial }));
+
+/**
+ * Diagnóstico de entrada: registra todo comando y todo botón pulsado.
+ * Si no aparece este log, el update no llegó al bot; si aparece y no hay
+ * respuesta, el problema está en el handler.
+ */
+bot.use(async (ctx, next) => {
+  const texto = ctx.msg?.text ?? '';
+
+  if (texto.startsWith('/')) {
+    logger.info({ comando: texto.split(' ')[0] }, 'Comando recibido');
+  }
+
+  if (ctx.callbackQuery?.data) {
+    logger.info({ callback: ctx.callbackQuery.data }, 'Callback recibido');
+  }
+
+  await next();
+});
 
 /** Quita la botonera inline de un mensaje; ignora errores de mensajes viejos. */
 async function quitarTeclado(ctx: BotContexto) {
@@ -193,7 +222,7 @@ async function mostrarGastoPendiente(ctx: BotContexto) {
   const gasto = ctx.session.pendingExpense;
 
   if (!gasto) {
-    return ctx.reply(MENSAJE_SIN_PENDIENTE);
+    return ctx.reply(MENSAJE_SIN_PENDIENTE, { parse_mode: 'HTML' });
   }
 
   return ctx.reply(construirVistaPrevia(gasto), {
@@ -417,6 +446,14 @@ async function procesarRespuestaRecurrenciaAntesDeConfirmacion(
   return true;
 }
 
+function formatearFechaCorta(fecha?: string): string {
+  if (!fecha) return '-';
+  const s = String(fecha);
+  if (s.includes('T')) return s.slice(0, 10);
+  if (/^\d{2}-\d{2}-\d{4}$/.test(s)) return s.split('-').reverse().join('-');
+  return s;
+}
+
 async function procesarEliminacion(ctx: BotContexto, texto: string, telegramId: string): Promise<boolean> {
   const t = texto.toLowerCase().trim();
   if (ctx.session.pendingDelete) {
@@ -426,9 +463,9 @@ async function procesarEliminacion(ctx: BotContexto, texto: string, telegramId: 
       try {
         await GastosService.deleteGasto(p.gastoId, telegramId);
         delete ctx.session.pendingDelete;
-        await ctx.reply(`Eliminado: ${p.descripcion} - $${p.monto} (${String(p.fecha).slice(0, 10)})`);
+        await ctx.reply(`Eliminado: ${p.descripcion} - $${p.monto} (${formatearFechaCorta(p.fecha)})`);
       } catch (error) {
-        await ctx.reply(mensajeErrorGenerico(error));
+        await ctx.reply(mensajeDeError(error));
       }
       return true;
     }
@@ -441,10 +478,13 @@ async function procesarEliminacion(ctx: BotContexto, texto: string, telegramId: 
     return true;
   }
 
-  if (/(elimina|borr[áa]|sac[áa]|quit[áa])/.test(t) && /(último|ultimo)/.test(t)) {
+  if (/(elimina|borrar|borr[áa]|sac[áa]|quit[áa])/.test(t) && /(último|ultimo)/.test(t)) {
     let comercio: string | undefined;
-    const match = t.match(/(?:de|en)\s+([a-záéíóúüñ0-9\s]+)$/);
-    if (match && match[1]) comercio = match[1].trim();
+    const match = t.match(/(?:de|en|del)\s+([a-záéíóúüñ0-9\s]+?)(?:\s|$)/);
+    if (match && match[1]) {
+      const cand = match[1].trim();
+      if (cand && !/^(gasto|gastos)$/.test(cand)) comercio = cand;
+    }
     try {
       const gasto: any = await GastosService.getUltimoGasto(telegramId, comercio ? { comercio } : {});
       if (!gasto || typeof gasto.id !== 'number') {
@@ -460,7 +500,7 @@ async function procesarEliminacion(ctx: BotContexto, texto: string, telegramId: 
       if (gasto.categoria && gasto.categoria.nombre) pendiente.categoria = gasto.categoria.nombre;
       (ctx.session as any).pendingDelete = pendiente;
       await ctx.reply(
-        `¿Eliminar este gasto?\n\n${gasto.descripcion ?? ''} - $${gasto.monto ?? 0}\nFecha: ${String(gasto.fecha ?? '').slice(0, 10)}\nCategoría: ${gasto.categoria && gasto.categoria.nombre ? gasto.categoria.nombre : '-'}`,
+        `¿Eliminar este gasto?\n\n${gasto.descripcion ?? ''} - $${gasto.monto ?? 0}\nFecha: ${formatearFechaCorta(gasto.fecha)}\nCategoría: ${gasto.categoria && gasto.categoria.nombre ? gasto.categoria.nombre : '-'}`,
       );
     } catch (error) {
       await ctx.reply(mensajeDeError(error));
@@ -474,26 +514,56 @@ async function procesarEdicionGastoExistente(ctx: BotContexto, texto: string, te
   const t = texto.toLowerCase().trim();
   if (ctx.session.pendingEdit) {
     const edicion = ctx.session.pendingEdit as any;
-    const monto = interpretarEdicion({ intent: 'CREATE_EXPENSE', monto: 0, comercio: null, categoria: null, descripcion: null, fecha: null, rango: null } as GastoAnalizado, texto);
-    if (monto?.cambio?.includes('Monto')) {
+    const candidato = interpretarEdicion({ intent: 'CREATE_EXPENSE', monto: 0, comercio: null, categoria: null, descripcion: null, fecha: null, rango: null } as GastoAnalizado, texto);
+    if (candidato?.gasto) {
+      const datos: Record<string, unknown> = {};
+      if (candidato.cambio?.includes('Monto') && candidato.gasto.monto !== null && candidato.gasto.monto !== undefined) {
+        datos.monto = candidato.gasto.monto;
+      } else {
+        const m = t.match(/(?:a|por|es|son)\s*\$?\s*(\d+(?:[.,]\d+)?)/);
+        if (m && m[1]) datos.monto = Number(m[1].replace(',', '.'));
+      }
+      if (candidato.cambio?.includes('Comercio') && candidato.gasto.comercio) {
+        datos.comercio = candidato.gasto.comercio;
+        datos.descripcion = candidato.gasto.comercio;
+      } else {
+        const c = t.match(/(?:comercio|negocio|lugar)\s+(?:a|es|por)\s+([a-záéíóúüñ0-9\s]+)/);
+        if (c && c[1]) {
+          const v = c[1].trim();
+          if (v && !/^(monto|precio|fecha|categoria)$/.test(v)) { datos.comercio = v; datos.descripcion = v; }
+        }
+      }
+      if (candidato.cambio?.includes('Categor') || candidato.gasto.categoria) {
+        if (candidato.gasto.categoria) datos.categoria = candidato.gasto.categoria;
+      }
+      if (candidato.cambio?.includes('Fecha') && candidato.gasto.fecha) {
+        datos.fecha = candidato.gasto.fecha;
+      }
+      if (Object.keys(datos).length === 0) {
+        await ctx.reply('Decime el cambio que querés hacer. Ejemplo: "cambiá el monto a 8000" o "cambiá el comercio a Shell".');
+        return true;
+      }
       try {
-        await GastosService.updateGasto(edicion.gastoId, telegramId, { monto: monto.gasto.monto });
+        const actualizado = await GastosService.updateGasto(edicion.gastoId, telegramId, datos);
         delete ctx.session.pendingEdit;
-        await ctx.reply(`Actualizado. Nuevo monto: $${monto.gasto.monto}`);
+        const desc = (actualizado as any)?.descripcion ?? datos.comercio ?? edicion?.gasto?.descripcion ?? '';
+        const montoAct = (actualizado as any)?.monto ?? datos.monto ?? edicion?.gasto?.monto ?? '';
+        const fechaAct = (actualizado as any)?.fecha ?? datos.fecha ?? edicion?.gasto?.fecha ?? '';
+        await ctx.reply(`Actualizado.\n${desc} - $${montoAct}\nFecha: ${formatearFechaCorta(String(fechaAct))}`);
       } catch (error) {
-        await ctx.reply(mensajeErrorGenerico(error));
+        await ctx.reply(mensajeDeError(error));
       }
       return true;
     }
-    await ctx.reply('Decime el nuevo monto o el cambio que querés hacer.');
+    await ctx.reply('Decime el cambio que querés hacer. Ejemplo: "cambiá el monto a 8000".');
     return true;
   }
 
-  if (/(modific|cambi|correg)/.test(t) && /(último|ultimo)/.test(t)) {
+  if (/(modific|cambi|correg|editar)/.test(t) && /(último|ultimo)/.test(t)) {
     let comercio: string | undefined;
-    const match = t.match(/(?:de|en)\s+([a-záéíóúüñ0-9\s]+?)(?:\s+a|\s+por|$)/);
+    const match = t.match(/(?:de|en|del)\s+([a-záéíóúüñ0-9\s]+?)(?:\s+a|\s+por|\s+al|$)/);
     const comercioMatch = match && match[1] ? match[1].trim() : undefined;
-    if (comercioMatch) comercio = comercioMatch;
+    if (comercioMatch && !/^(gasto|gastos|monto|precio)$/.test(comercioMatch)) comercio = comercioMatch;
     try {
       const gasto: any = await GastosService.getUltimoGasto(telegramId, comercio ? { comercio } : {});
       if (!gasto || typeof gasto.id !== 'number') {
@@ -502,8 +572,36 @@ async function procesarEdicionGastoExistente(ctx: BotContexto, texto: string, te
       }
       (ctx.session as any).pendingEdit = { gastoId: gasto.id, gasto };
       await ctx.reply(
-        `Gasto actual: ${gasto.descripcion ?? ''} - $${gasto.monto ?? 0} (${String(gasto.fecha ?? '').slice(0, 10)})\n\n¿Qué querés modificar? Escribime el nuevo valor, por ejemplo "el precio es 8000".`,
+        `Gasto actual: ${gasto.descripcion ?? ''} - $${gasto.monto ?? 0} (${formatearFechaCorta(gasto.fecha)})${gasto.categoria?.nombre ? `\nCategoría: ${gasto.categoria.nombre}` : ''}\n\n¿Qué querés modificar? Escribime el cambio, por ejemplo "cambiá el monto a 8000" o "cambiá el comercio a Shell".`,
       );
+      return true;
+    } catch (error) {
+      await ctx.reply(mensajeDeError(error));
+    }
+    return true;
+  }
+  return false;
+}
+
+async function procesarMostrarGasto(ctx: BotContexto, texto: string, telegramId: string): Promise<boolean> {
+  const t = texto.toLowerCase().trim();
+  if (/(ver|mostrar|consultar|mostrame)/.test(t) && /(último|ultimo)/.test(t)) {
+    let comercio: string | undefined;
+    const match = t.match(/(?:de|en|del)\s+([a-záéíóúüñ0-9\s]+?)$/);
+    if (match && match[1]) {
+      const cand = match[1].trim();
+      if (cand && !/^(gasto|gastos)$/.test(cand)) comercio = cand;
+    }
+    try {
+      const gasto: any = await GastosService.getUltimoGasto(telegramId, comercio ? { comercio } : {});
+      if (!gasto || typeof gasto.id !== 'number') {
+        await ctx.reply('No encontré un gasto para mostrar con esos filtros.');
+        return true;
+      }
+      await ctx.reply(
+        `Gasto #${gasto.id}\nDescripción: ${gasto.descripcion ?? '-'}\nMonto: $${gasto.monto ?? 0}\nFecha: ${formatearFechaCorta(gasto.fecha)}\nCategoría: ${gasto.categoria?.nombre ?? '-'}`,
+      );
+      (ctx.session as any).pendingShow = { gastoId: gasto.id, gasto };
       return true;
     } catch (error) {
       await ctx.reply(mensajeDeError(error));
@@ -529,7 +627,7 @@ async function responderResumen(
       { telegramId, detalle: mensajeDeError(error) },
       'No se pudo obtener el resumen de gastos',
     );
-    await ctx.reply(MENSAJE_ERROR_RESUMEN);
+    await ctx.reply(MENSAJE_ERROR_RESUMEN, { parse_mode: 'HTML' });
   }
 }
 
@@ -596,7 +694,7 @@ async function crearCategoria(ctx: BotContexto, nombre: string | null) {
   const limpio = (nombre ?? '').trim();
 
   if (limpio.length < 2) {
-    return ctx.reply(MENSAJE_CATEGORIA_INVALIDA);
+    return ctx.reply(MENSAJE_CATEGORIA_INVALIDA, { parse_mode: 'HTML' });
   }
 
   try {
@@ -605,7 +703,7 @@ async function crearCategoria(ctx: BotContexto, nombre: string | null) {
       parse_mode: 'HTML',
     });
   } catch (error) {
-    await ctx.reply(mensajeErrorCategoria(mensajeDeError(error)));
+    await ctx.reply(mensajeErrorCategoria(mensajeDeError(error)), { parse_mode: 'HTML' });
   }
 }
 
@@ -627,7 +725,7 @@ async function procesarFoto(ctx: BotContexto, foto: PhotoSize | undefined) {
   const telegramId = String(ctx.from?.id ?? '');
   try {
     logger.info({ telegramId }, 'Foto recibida para análisis');
-    await ctx.reply(MENSAJE_ANALIZANDO);
+    await ctx.reply(MENSAJE_ANALIZANDO, { parse_mode: 'HTML' });
 
     if (!foto) {
       await ctx.reply(mensajeNoEntendidoImagen());
@@ -639,7 +737,7 @@ async function procesarFoto(ctx: BotContexto, foto: PhotoSize | undefined) {
     await preguntarRecurrenciaSiCorresponde(ctx, gasto, 'imagen');
   } catch (error) {
     logger.error({ error: mensajeDeError(error), telegramId }, 'Error al procesar foto');
-    await ctx.reply(mensajeErrorComprobante(mensajeDeError(error)));
+    await ctx.reply(mensajeErrorComprobante(mensajeDeError(error)), { parse_mode: 'HTML' });
   }
 }
 
@@ -647,16 +745,34 @@ async function procesarFoto(ctx: BotContexto, foto: PhotoSize | undefined) {
 bot.command('start', async (ctx) => {
   ctx.session = crearSesionInicial();
   const vista = vistaBienvenida();
-  await ctx.reply(vista.texto, { reply_markup: vista.teclado });
+  await ctx.reply(vista.texto, { parse_mode: 'HTML', reply_markup: vista.teclado });
 });
 
 bot.command('ayuda', async (ctx) => {
-  await ctx.reply(MENSAJE_AYUDA, { parse_mode: 'HTML' });
+  await ctx.reply(MENSAJE_AYUDA, {
+    parse_mode: 'HTML',
+    reply_markup: { inline_keyboard: construirTecladoAyudaRapido() },
+  });
 });
 
 bot.command('resumen', async (ctx) => {
-  if (!ctx.from) return;
-  await responderResumen(ctx, String(ctx.from.id), 'YEAR');
+  await manejarResumenComando(ctx);
+});
+
+bot.command('grafico', async (ctx) => {
+  await manejarGraficoComando(ctx);
+});
+
+bot.command('historial', async (ctx) => {
+  await manejarHistorialComando(ctx);
+});
+
+bot.command('eliminar', async (ctx) => {
+  await manejarEliminarComando(ctx);
+});
+
+bot.command('modificar', async (ctx) => {
+  await manejarModificarComando(ctx);
 });
 
 // Crea una categoría por comando: /categoria Gimnasio
@@ -664,7 +780,7 @@ bot.command('categoria', async (ctx) => {
   const nombre = ctx.match.trim();
 
   if (!nombre) {
-    return ctx.reply(mensajeUsoCategoria());
+    return ctx.reply(mensajeUsoCategoria(), { parse_mode: 'HTML' });
   }
 
   await crearCategoria(ctx, nombre);
@@ -695,7 +811,7 @@ bot.callbackQuery('confirm_gasto', async (ctx) => {
   const telegramId = String(ctx.from.id);
 
   if (!gasto) {
-    return ctx.reply(MENSAJE_SIN_PENDIENTE);
+    return ctx.reply(MENSAJE_SIN_PENDIENTE, { parse_mode: 'HTML' });
   }
 
   ctx.session.procesando = true;
@@ -714,7 +830,10 @@ bot.callbackQuery('confirm_gasto', async (ctx) => {
     const gastoGuardado = gasto;
     delete ctx.session.pendingExpense;
     delete ctx.session.procesando;
-    await ctx.reply(MENSAJE_GASTO_GUARDADO);
+    await ctx.reply(MENSAJE_GASTO_GUARDADO, {
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: construirTecladoDespuesDeGuardar() },
+    });
     // Mantener flujo de recurrencia si está en curso (pregunta previa)
     if (ctx.session.recurringStep === 'ASK_FREQUENCY' && ctx.session.pendingRecurring?.quiereRecurrente) {
       // ya se pidió la frecuencia en el flujo previo
@@ -724,7 +843,9 @@ bot.callbackQuery('confirm_gasto', async (ctx) => {
     }
   } catch (error) {
     delete ctx.session.procesando;
-    await ctx.reply(mensajeErrorGuardado(mensajeDeError(error)));
+    await ctx.reply(mensajeErrorGuardado(mensajeDeError(error)), {
+      parse_mode: 'HTML',
+    });
   }
 });
 
@@ -739,12 +860,15 @@ bot.callbackQuery('cancel_gasto', async (ctx) => {
   delete ctx.session.pendingExpense;
 
   await quitarTeclado(ctx);
-  await ctx.editMessageText(MENSAJE_CANCELADO);
+  await ctx.editMessageText(MENSAJE_CANCELADO, { parse_mode: 'HTML' });
   delete ctx.session.procesando;
   delete ctx.session.recurringStep;
   delete ctx.session.pendingRecurring;
   delete ctx.session.pendingRecurringCheck;
 });
+
+// Callbacks de /eliminar, /modificar y /historial (incluye la paginación).
+registrarCallbacksDeAcciones(bot);
 
 // 4. Manejador de Mensajes de Texto
 bot.on('message:text', async (ctx) => {
@@ -771,6 +895,8 @@ bot.on('message:text', async (ctx) => {
     (await procesarAutenticacion(ctx, texto, telegramId, nombre)) ||
     (await procesarEdicion(ctx, texto)) ||
     (await procesarFlujoRecurrente(ctx, texto, telegramId)) ||
+    (await procesarMostrarGasto(ctx, texto, telegramId)) ||
+    (await procesarCampoEditPendiente(ctx, texto, telegramId)) ||
     (await procesarEliminacion(ctx, texto, telegramId)) ||
     (await procesarEdicionGastoExistente(ctx, texto, telegramId));
 
@@ -785,6 +911,17 @@ bot.on('message:text', async (ctx) => {
     return await mostrarGastoPendiente(ctx);
   }
 
+  // Comandos que ya no existen como atajos: se reorientan al nuevo uso.
+  const comandoLegacy = texto.trim().toLowerCase().match(/^\/(hoy|semana|mes)$/);
+  if (comandoLegacy) {
+    logger.info({ comando: comandoLegacy[1] }, 'Comando legado reorientado a /resumen');
+    await ctx.reply(
+      `Ese comando ya no está disponible. Usá <b>/resumen ${comandoLegacy[1]}</b> (o <b>/grafico ${comandoLegacy[1]}</b>).`,
+      { parse_mode: 'HTML' },
+    );
+    return;
+  }
+
   await analizarGastoTexto(ctx, texto);
 });
 
@@ -795,22 +932,49 @@ bot.on('message:photo', async (ctx) => {
   await procesarFoto(ctx, ctx.message.photo.at(-1));
 });
 
-// Iniciar bot con logging estructurado
+// Iniciar bot con logging estructurado.
+// `BOT_AUTOSTART=0` permite importar este módulo en pruebas sin abrir el polling
+// (el polling real es exclusivo del servicio de producción).
 logger.info('Iniciando servicio de Telegram Bot');
 
-bot.start({
-  onStart: (info) => {
-    logger.info(
-      { username: info.username },
-      'Bot iniciado y listo para recibir mensajes',
+/** Registra en Telegram los comandos disponibles del bot. */
+async function registrarComandos(username: string): Promise<void> {
+  logger.info(
+    { username },
+    'Bot iniciado y listo para recibir mensajes',
+  );
+  await bot.api.setMyCommands([
+    { command: 'start', description: 'Iniciar y autenticar' },
+    { command: 'ayuda', description: 'Ver ayuda y comandos' },
+    { command: 'resumen', description: 'Resumen por período: hoy, semana, mes, año o fechas' },
+    { command: 'historial', description: 'Ver historial paginado de gastos' },
+    { command: 'grafico', description: 'Gráfico por período: hoy, semana, mes, año o fechas' },
+    { command: 'eliminar', description: 'Eliminar un gasto con botones' },
+    { command: 'modificar', description: 'Modificar monto, comercio, categoría o fecha' },
+    { command: 'categoria', description: 'Crear una categoría (ej: /categoria Comida)' },
+  ]);
+}
+
+if (process.env.BOT_AUTOSTART !== '0') {
+  bot.catch((error) => {
+    logger.error(
+      { detalle: mensajeDeError(error) },
+      'Error no controlado procesando una actualización',
     );
-    bot.api
-      .setMyCommands([
-        { command: 'start', description: 'Iniciar y autenticar' },
-        { command: 'ayuda', description: 'Ver ayuda y comandos' },
-        { command: 'categoria', description: 'Crear una categoría (ej: /categoria Comida)' },
-        { command: 'resumen', description: 'Ver resumen de gastos' },
-      ])
-      .catch((error) => logger.warn({ error }, 'No se pudieron registrar los comandos'));
-  },
-});
+  });
+
+  bot
+    .start({
+      onStart: (info) => {
+        registrarComandos(info.username).catch((error) =>
+          logger.warn({ error }, 'No se pudieron registrar los comandos'),
+        );
+      },
+    })
+    .catch((error) => {
+      logger.error(
+        { detalle: mensajeDeError(error) },
+        'El polling del bot se detuvo por un error',
+      );
+    });
+}

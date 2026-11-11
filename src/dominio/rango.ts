@@ -1,5 +1,6 @@
 /** Rangos de resumen que entiende api-gastos y devuelve servicio-ia. */
 export type RangoResumen =
+  | 'TODAY'
   | 'WEEK'
   | '15_DAYS'
   | 'MONTH'
@@ -7,6 +8,7 @@ export type RangoResumen =
   | 'YEAR';
 
 export const RANGOS_RESUMEN: RangoResumen[] = [
+  'TODAY',
   'WEEK',
   '15_DAYS',
   'MONTH',
