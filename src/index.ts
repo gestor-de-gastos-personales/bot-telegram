@@ -58,6 +58,10 @@ import { manejarGraficoComando } from './handlers/grafico.js';
 import { manejarHistorialComando } from './handlers/historial.js';
 import { manejarResumenComando } from './handlers/resumen.js';
 import {
+  manejarEdicionNatural,
+  manejarEliminacionNatural,
+} from './handlers/acciones-nl.js';
+import {
   MENSAJE_CATEGORIA_INVALIDA,
   mensajeCategoriaCreada,
   mensajeErrorCategoria,
@@ -641,6 +645,14 @@ async function analizarGastoTexto(ctx: BotContexto, texto: string) {
 
     if (resultado.intent === 'GET_SUMMARY') {
       return await responderResumen(ctx, telegramId, resultado.rango);
+    }
+
+    if (resultado.intent === 'DELETE_EXPENSE') {
+      return await manejarEliminacionNatural(ctx, telegramId, resultado);
+    }
+
+    if (resultado.intent === 'EDIT_EXPENSE') {
+      return await manejarEdicionNatural(ctx, telegramId, resultado);
     }
 
     if (resultado.intent === 'CREATE_CATEGORY') {
