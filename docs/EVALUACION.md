@@ -3,29 +3,32 @@
 
 > Documento **generado automáticamente** por la cátedra de Programación III (RepoSense + análisis de calidad + constancia). **No editar a mano**: se regenera en cada evaluación.
 > Rama evaluada: `main`. Análisis **heurístico** (regex + métricas): es una criba para orientar la revisión, **no una nota**.
-> Generado: 2026-10-28.
+> Generado: 2026-11-11.
 
 ## 1. Veredicto
 
 | Aspecto | Resultado |
 |---|---|
 | Tipo de proyecto | frontend |
-| Índice de calidad de servicios | **40/100** (mínimo 60) |
-| Criterios cumplidos | **12/15** |
+| Índice de calidad de servicios | **94/100** (mínimo 50) |
+| Criterios cumplidos | **13/15** |
 | Aprobado (semáforo) | **NO** |
-| Código (LOC) | 1,423 |
-| Archivos de código | 25 |
-| Tests (archivos) | 7 |
-| Cobertura de líneas | 48.6% (mínimo 80%) |
+| Código (LOC) | 1,704 |
+| Archivos de código | 22 |
+| Tests (archivos) | 9 |
+| Cobertura de líneas | 32.0% (mínimo 80%) |
 | Capas detectadas | vistas, servicios, estado |
+| Pushes directos a `main` (sin PR) | 1 |
 
-> **Aprobado** exige cumplir **todos** los criterios del semáforo. No es una nota: sirve para ordenar y priorizar la revisión.
+> **Pushes directos:** se detectaron **1** commit(s) a `main` que no pasaron por un Pull Request. El flujo esperado es **rama → PR → revisión → merge**; el PR se aprueba con el mensaje `Aprobado`. Evitá pushear directo a `main`: la ruleset lo bloquea y el commit directo queda auditado.
+
+> **Aprobado** exige las compuertas críticas (**SEC**, **SQL**, **capas**, **índice ≥ 50** y **cobertura ≥ 80 %** cuando aplica) y tolera hasta **3 criterios en rojo** (12/15). No es una nota: sirve para ordenar y priorizar la revisión.
 
 ## 2. Autoría (RepoSense)
 
 | Autor | Commits | Código (LOC) | Tests (LOC) | Docs (LOC) | Días activos | % del código |
 |---|---:|---:|---:|---:|---:|---:|
-| blevatino | 15 | 949 | 721 | 1 | 3 | 100% |
+| blevatino | 25 | 1,950 | 1,004 | 1 | 5 | 100% |
 
 > _El LOC de autoría lo calcula RepoSense sobre el historial y puede diferir del LOC de código del análisis de calidad (que mira solo el estado de `main`)._
 
@@ -35,7 +38,7 @@
 
 | Alumno | Sesiones | Cumplimiento | Pausa | Recencia | IC | Nivel | Para subir de nivel |
 |---|--:|--:|--:|--:|--:|--|--|
-| blevatino | 12 | 55% | 19 d | 57% | **44** | No aprueba | Pausa 19 d (máx. 10 d) |
+| blevatino | 16 | 62% | 19 d | 71% | **50** | Aprueba | Cumplimiento 62% (mín. 100%); Pausa 19 d (máx. 5 d); Recencia 71% (mín. 75%) |
 
 > Para aprobar el IC: **2 sesiones por semana** sostenidas, sin pausas mayores a **10 días** y con actividad en las **últimas 2 semanas**. Se excluyen merges, bots y al docente. Zona horaria UTC-3.
 
@@ -43,31 +46,23 @@
 
 Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuando el resultado está en rojo, se agregan preguntas para **investigar la causa** (no hay recetas: entender el porqué es parte de la evaluación).
 
-### 1. Índice de calidad de servicios (indice) — A REVISAR
+### 1. Índice de calidad de servicios (indice) — OK
 
 - **Qué mide:** Un resumen numérico (0-100) que combina todas las señales y métricas del análisis, con topes duros por duplicación.
 - **Por qué importa:** Ordena y prioriza la revisión: un índice bajo indica varias señales que conviene mirar juntas.
-- **Tu resultado:** índice **40/100** _(mínimo 60)_
-- **Para investigar la causa:**
-    - ¿En qué momento del proyecto se concentraron los problemas (arranque, integración de partes, cierre)?
-    - ¿El índice bajó por muchas señales chicas o por una o dos graves?
-    - ¿Se revisó el código integrado después de unir el trabajo de cada integrante?
+- **Tu resultado:** índice **94/100** _(mínimo 50)_
 
 ### 2. Duplicación (DRY) (duplicacion) — OK
 
 - **Qué mide:** Porcentaje de bloques de código repetidos (similitud) en el repositorio.
 - **Por qué importa:** Cada copia se mantiene por separado: un arreglo hay que repetirlo y los defectos se multiplican.
-- **Tu resultado:** **5.2%** de duplicación _(máximo 15%)_
+- **Tu resultado:** **2.8%** de duplicación _(máximo 15%)_
 
-### 3. Secretos hardcodeados (SEC) — A REVISAR
+### 3. Secretos hardcodeados (SEC) — OK
 
 - **Qué mide:** Credenciales, tokens o claves escritos directamente en el código en vez de leerse de variables de entorno.
 - **Por qué importa:** Un secreto en el repositorio queda expuesto en el historial aunque luego se borre, y compromete al servicio y a sus usuarios.
-- **Tu resultado:** **1** secreto(s) hardcodeado(s) _(máximo 0)_
-- **Para investigar la causa:**
-    - ¿De dónde salió ese valor: un ejemplo, una prueba rápida, una copia de un compañero?
-    - ¿En qué momento entró al código y por qué no se sacó antes de cerrar la tarea?
-    - ¿Se acordó cómo manejar credenciales antes de empezar, o se postergó para el final?
+- **Tu resultado:** **0** secreto(s) hardcodeado(s) _(máximo 0)_
 
 ### 4. Consultas SQL por concatenación (SQL) — OK
 
@@ -97,7 +92,7 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 
 - **Qué mide:** Uso de `any` en TypeScript, que desactiva la verificación de tipos.
 - **Por qué importa:** Se pierde la ayuda del compilador justo donde los datos vienen de afuera (API, formularios).
-- **Tu resultado:** **0** uso(s) de `any` _(máximo 2)_
+- **Tu resultado:** **1** uso(s) de `any` _(máximo 2)_
 
 ### 9. Componente demasiado grande (BigC) — OK
 
@@ -111,29 +106,33 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 - **Por qué importa:** Una unidad que cambia por motivos distintos es frágil y cuesta entenderla.
 - **Tu resultado:** **0** unidad(es) con baja cohesión _(máximo 0)_
 
-### 11. Complejidad alta (Compl) — OK
+### 11. Complejidad alta (Compl) — A REVISAR
 
 - **Qué mide:** Complejidad ciclomática: cantidad de caminos posibles dentro de una función (condicionales, bucles, casos).
 - **Por qué importa:** Muchos caminos = difícil de seguir y de probar; suelen esconderse casos sin cubrir.
-- **Tu resultado:** **1** bloque(s) de complejidad alta _(máximo 5 por 1000 LOC (tenés 1423 LOC))_
+- **Tu resultado:** **9** bloque(s) de complejidad alta _(máximo 5 por 1000 LOC (tenés 1704 LOC))_
+- **Para investigar la causa:**
+    - ¿Se agregaron condiciones a medida que aparecían casos nuevos?
+    - ¿Se probaron todos los caminos o solo el caso principal?
+    - ¿Hay reglas de negocio mezcladas con detalles técnicos?
 
 ### 12. Funciones/métodos largos o con muchos parámetros (Tam) — OK
 
 - **Qué mide:** Tamaño de las funciones/métodos y cantidad de parámetros.
 - **Por qué importa:** Una función que hace varias cosas cuesta leerla, nombrarla y reutilizarla.
-- **Tu resultado:** **5** función/método(s) largos o con muchos parámetros _(máximo 10 por 1000 LOC)_
+- **Tu resultado:** **6** función/método(s) largos o con muchos parámetros _(máximo 10 por 1000 LOC)_
 
 ### 13. Acoplamiento alto (Acop) — OK
 
 - **Qué mide:** Cuánto depende una unidad de las partes internas de otra.
 - **Por qué importa:** Piezas muy enlazadas hacen que un cambio se propague y que sea difícil reemplazar partes.
-- **Tu resultado:** **1** unidad(es) con acoplamiento alto _(máximo 2 por 1000 LOC)_
+- **Tu resultado:** **3** unidad(es) con acoplamiento alto _(máximo 2 por 1000 LOC)_
 
 ### 14. Cobertura de tests (Cob) — A REVISAR
 
 - **Qué mide:** Porcentaje de líneas de código ejecutadas por la suite de tests (cobertura real, no cantidad de archivos de test).
 - **Por qué importa:** Un test que existe pero no ejecuta el código no protege de nada: la cobertura muestra qué partes quedan sin verificar.
-- **Tu resultado:** **48.6%** de líneas cubiertas _(mínimo 80% de líneas)_
+- **Tu resultado:** **32.0%** de líneas cubiertas · fuente: ejecución: vitest _(mínimo 80% de líneas)_
 - **Para investigar la causa:**
     - ¿Qué módulos o ramas del sistema nunca se ejecutan en los tests?
     - ¿Los tests prueban el camino principal y los errores, o solo el caso feliz?
@@ -143,26 +142,61 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 
 - **Qué mide:** Cantidad de vistas/componentes de pantalla del frontend.
 - **Por qué importa:** El frontend se mide por pantallas: pocas vistas sugiere poca cobertura de la interfaz pedida.
-- **Tu resultado:** **8** vista(s)/componente(s) _(mínimo 8)_
+- **Tu resultado:** **10** vista(s)/componente(s) _(mínimo 6)_
 
-## 5. Qué falta para aprobar
+## 5. Observaciones y qué falta
 
-Criterios que hoy están en rojo y qué habría que cambiar para alcanzar el nivel de aprobación (perfil `exigente`):
+Criterios que hoy están en rojo y, para cada uno, una explicación breve de **cómo corregirlo** hasta alcanzar el nivel de aprobación (perfil `exigente`):
 
-| Criterio | Resultado actual | Meta | Qué arreglar |
-|---|---|---|---|
-| Índice de calidad de servicios (indice) | índice **40/100** | mínimo 60 | Subir el índice a ≥60 corrigiendo primero las señales de más peso: duplicación, secretos, SQL y capas. |
-| Secretos hardcodeados (SEC) | **1** secreto(s) hardcodeado(s) | máximo 0 | Leer credenciales de variables de entorno o del gestor de secretos y sacarlas del código; 0 casos. |
-| Cobertura de tests (Cob) | **48.6%** de líneas cubiertas | mínimo 80% de líneas | Publicar cobertura (o correr la suite con coverage) y cubrir ≥80% de líneas. |
+| Criterio | Resultado actual | Meta | Brecha | Cómo alcanzarlo |
+|---|---|---|---|---|
+| Complejidad alta (Compl) | **9** bloque(s) de complejidad alta | máximo 5 por 1000 LOC (tenés 1704 LOC) | 9 hallazgo(s); el máximo para 1,704 LOC es 8.5 | Extraé condiciones y ramas a funciones con nombre propio, usá retornos tempranos y evitá anidar `if`/`switch`. Meta: ≤5 bloques por 1000 LOC. |
+| Cobertura de tests (Cob) | **32.0%** de líneas cubiertas · fuente: ejecución: vitest | mínimo 80% de líneas | faltan 48.0 pts | Agregá o ampliá tests que ejecuten los módulos sin cubrir (camino principal y errores) y publicá el artefacto (`coverage/lcov.info`, `coverage-summary.json`, `coverage.xml` o `coverage.json`) o corré la suite con coverage. Meta: ≥80% de líneas. |
 
-> Empezá por las señales de seguridad (**SEC**, **SQL**) y por la **duplicación**: son las que más pesan en el índice y las más rápidas de verificar a ojo.
+> Empezá por las señales de seguridad (**SEC**, **SQL**) y por la **duplicación**: son las que más pesan en el índice y las más rápidas de verificar a ojo. Después de corregir, volvé a correr la medición: el semáforo se recalcula sobre `main`.
 
-## 6. Anexo: dónde mirar
+## 6. Actividad en clase (miércoles y viernes)
+
+> Se consideran las **23 clases** del período (miércoles y viernes, según `config/constancia.json`; feriados y semanas sin clase descontados). `Commits` = commits de trabajo (no-merge); `Merges` = merges de PR (también son push). Los días sin actividad dicen **sin actividad**.
+
+### blevatino
+
+**14/23 clases con actividad** · 34 commits · 16 merges
+
+| Fecha | Actividad | Repositorios | Commits / merges |
+|---|:--:|---|--:|
+| 2026-08-14 | No | sin actividad | 0 / 0 |
+| 2026-08-19 | No | sin actividad | 0 / 0 |
+| 2026-08-21 | No | sin actividad | 0 / 0 |
+| 2026-08-26 | **Sí** | api-gastos | 2 / 1 |
+| 2026-08-28 | No | sin actividad | 0 / 0 |
+| 2026-09-02 | No | sin actividad | 0 / 0 |
+| 2026-09-04 | **Sí** | api-gastos | 1 / 0 |
+| 2026-09-09 | **Sí** | api-gastos | 0 / 1 |
+| 2026-09-11 | No | sin actividad | 0 / 0 |
+| 2026-09-16 | No | sin actividad | 0 / 0 |
+| 2026-09-18 | No | sin actividad | 0 / 0 |
+| 2026-09-23 | **Sí** | api-gastos | 2 / 1 |
+| 2026-09-25 | **Sí** | api-gastos | 1 / 1 |
+| 2026-09-30 | **Sí** | api-gastos | 1 / 1 |
+| 2026-10-02 | **Sí** | api-gastos | 2 / 1 |
+| 2026-10-07 | **Sí** | api-gastos | 5 / 4 |
+| 2026-10-09 | **Sí** | api-gastos | 1 / 0 |
+| 2026-10-14 | **Sí** | servicio-ia | 0 / 2 |
+| 2026-10-16 | **Sí** | servicio-ia | 4 / 1 |
+| 2026-10-21 | **Sí** | api-gastos, bot-telegram | 11 / 0 |
+| 2026-10-23 | No | sin actividad | 0 / 0 |
+| 2026-10-28 | **Sí** | api-gastos, bot-telegram, servicio-ia | 3 / 3 |
+| 2026-10-30 | **Sí** | front-web | 1 / 0 |
+
+## 7. Anexo: dónde mirar
 
 Archivos donde el análisis encontró cada señal en rojo (sin número de línea, a propósito):
 
-**Secretos hardcodeados (SEC)** — 1 archivo(s):
-- `src/auth.ts`
+**Complejidad alta (Compl)** — 3 archivo(s):
+- `src/edicion.ts`
+- `src/index.ts`
+- `src/services/ia.service.ts`
 
 ---
 _Informe generado por la cátedra. Los umbrales corresponden al perfil `exigente`. Ante dudas, revisá el archivo señalado y el criterio en `CRITERIOS-CALIDAD.md`._
