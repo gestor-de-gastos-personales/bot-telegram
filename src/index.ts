@@ -381,7 +381,7 @@ async function procesarFlujoRecurrente(ctx: BotContexto, texto: string, telegram
 
     let gasto = ctx.session.pendingRecurring || ctx.session.pendingExpense;
     if (!gasto && ctx.session.pendingRecurringCheck) {
-      gasto = ctx.session.pendingRecurringCheck as any;
+      gasto = ctx.session.pendingRecurringCheck;
     }
     try {
       await GastosService.createRecurrente({
@@ -423,12 +423,9 @@ async function procesarRespuestaRecurrenciaAntesDeConfirmacion(
   if (/^(si|sí|yes|s)\b/.test(t)) {
     delete ctx.session.pendingRecurringCheck;
     delete ctx.session.procesando;
-    ctx.session.pendingRecurring = { ...gasto, telegramId, quiereRecurrente: true };
-    delete (ctx.session.pendingRecurring as any).origen;
-    ctx.session.pendingExpense = { ...ctx.session.pendingRecurring };
-    delete (ctx.session.pendingExpense as any).origen;
-    delete (ctx.session.pendingExpense as any).telegramId;
-    delete (ctx.session.pendingExpense as any).quiereRecurrente;
+    const { origen: _origen, ...datosGasto } = gasto;
+    ctx.session.pendingRecurring = { ...datosGasto, telegramId, quiereRecurrente: true };
+    ctx.session.pendingExpense = { ...datosGasto };
     ctx.session.recurringStep = 'ASK_FREQUENCY';
     await ctx.reply('Lo voy a registrar como gasto recurrente.');
     await ctx.reply(construirVistaPreviaRecurrente(ctx.session.pendingExpense), {
@@ -462,7 +459,7 @@ async function procesarEliminacion(ctx: BotContexto, texto: string, telegramId: 
   const t = texto.toLowerCase().trim();
   if (ctx.session.pendingDelete) {
     if (/^(si|sí|yes|s)\b/.test(t)) {
-      const p = ctx.session.pendingDelete as any;
+      const p = ctx.session.pendingDelete;
       if (!p) return false;
       try {
         await GastosService.deleteGasto(p.gastoId, telegramId);
@@ -490,21 +487,21 @@ async function procesarEliminacion(ctx: BotContexto, texto: string, telegramId: 
       if (cand && !/^(gasto|gastos)$/.test(cand)) comercio = cand;
     }
     try {
-      const gasto: any = await GastosService.getUltimoGasto(telegramId, comercio ? { comercio } : {});
+      const gasto = await GastosService.getUltimoGasto(telegramId, comercio ? { comercio } : {});
       if (!gasto || typeof gasto.id !== 'number') {
         await ctx.reply('No encontré un gasto para eliminar con esos filtros.');
         return true;
       }
-      const pendiente: any = {
+      const pendiente: NonNullable<SessionData['pendingDelete']> = {
         gastoId: gasto.id,
         monto: Number(gasto.monto ?? 0),
         descripcion: gasto.descripcion ?? '',
         fecha: gasto.fecha ?? new Date().toISOString(),
       };
       if (gasto.categoria && gasto.categoria.nombre) pendiente.categoria = gasto.categoria.nombre;
-      (ctx.session as any).pendingDelete = pendiente;
+      (ctx.session).pendingDelete = pendiente;
       await ctx.reply(
-        `¿Eliminar este gasto?\n\n${gasto.descripcion ?? ''} - $${gasto.monto ?? 0}\nFecha: ${formatearFechaCorta(gasto.fecha)}\nCategoría: ${gasto.categoria && gasto.categoria.nombre ? gasto.categoria.nombre : '-'}`,
+        `¿Eliminar este gasto?\n\n${gasto.descripcion ?? ''} - $${gasto.monto ?? 0}\nFecha: ${formatearFechaCorta(gasto.fecha ?? undefined)}\nCategoría: ${gasto.categoria && gasto.categoria.nombre ? gasto.categoria.nombre : '-'}`,
       );
     } catch (error) {
       await ctx.reply(mensajeDeError(error));
@@ -517,7 +514,7 @@ async function procesarEliminacion(ctx: BotContexto, texto: string, telegramId: 
 async function procesarEdicionGastoExistente(ctx: BotContexto, texto: string, telegramId: string): Promise<boolean> {
   const t = texto.toLowerCase().trim();
   if (ctx.session.pendingEdit) {
-    const edicion = ctx.session.pendingEdit as any;
+    const edicion = ctx.session.pendingEdit;
     const candidato = interpretarEdicion({ intent: 'CREATE_EXPENSE', monto: 0, comercio: null, categoria: null, descripcion: null, fecha: null, rango: null } as GastoAnalizado, texto);
     if (candidato?.gasto) {
       const datos: Record<string, unknown> = {};
@@ -550,9 +547,9 @@ async function procesarEdicionGastoExistente(ctx: BotContexto, texto: string, te
       try {
         const actualizado = await GastosService.updateGasto(edicion.gastoId, telegramId, datos);
         delete ctx.session.pendingEdit;
-        const desc = (actualizado as any)?.descripcion ?? datos.comercio ?? edicion?.gasto?.descripcion ?? '';
-        const montoAct = (actualizado as any)?.monto ?? datos.monto ?? edicion?.gasto?.monto ?? '';
-        const fechaAct = (actualizado as any)?.fecha ?? datos.fecha ?? edicion?.gasto?.fecha ?? '';
+        const desc = String(actualizado?.descripcion ?? datos.comercio ?? edicion?.gasto?.descripcion ?? '');
+        const montoAct = String(actualizado?.monto ?? datos.monto ?? edicion?.gasto?.monto ?? '');
+        const fechaAct = String(actualizado?.fecha ?? datos.fecha ?? edicion?.gasto?.fecha ?? '');
         await ctx.reply(`Actualizado.\n${desc} - $${montoAct}\nFecha: ${formatearFechaCorta(String(fechaAct))}`);
       } catch (error) {
         await ctx.reply(mensajeDeError(error));
@@ -569,14 +566,14 @@ async function procesarEdicionGastoExistente(ctx: BotContexto, texto: string, te
     const comercioMatch = match && match[1] ? match[1].trim() : undefined;
     if (comercioMatch && !/^(gasto|gastos|monto|precio)$/.test(comercioMatch)) comercio = comercioMatch;
     try {
-      const gasto: any = await GastosService.getUltimoGasto(telegramId, comercio ? { comercio } : {});
+      const gasto = await GastosService.getUltimoGasto(telegramId, comercio ? { comercio } : {});
       if (!gasto || typeof gasto.id !== 'number') {
         await ctx.reply('No encontré un gasto para modificar con esos filtros.');
         return true;
       }
-      (ctx.session as any).pendingEdit = { gastoId: gasto.id, gasto };
+      ctx.session.pendingEdit = { gastoId: gasto.id, gasto };
       await ctx.reply(
-        `Gasto actual: ${gasto.descripcion ?? ''} - $${gasto.monto ?? 0} (${formatearFechaCorta(gasto.fecha)})${gasto.categoria?.nombre ? `\nCategoría: ${gasto.categoria.nombre}` : ''}\n\n¿Qué querés modificar? Escribime el cambio, por ejemplo "cambiá el monto a 8000" o "cambiá el comercio a Shell".`,
+        `Gasto actual: ${gasto.descripcion ?? ''} - $${gasto.monto ?? 0} (${formatearFechaCorta(gasto.fecha ?? undefined)})${gasto.categoria?.nombre ? `\nCategoría: ${gasto.categoria.nombre}` : ''}\n\n¿Qué querés modificar? Escribime el cambio, por ejemplo "cambiá el monto a 8000" o "cambiá el comercio a Shell".`,
       );
       return true;
     } catch (error) {
@@ -597,15 +594,15 @@ async function procesarMostrarGasto(ctx: BotContexto, texto: string, telegramId:
       if (cand && !/^(gasto|gastos)$/.test(cand)) comercio = cand;
     }
     try {
-      const gasto: any = await GastosService.getUltimoGasto(telegramId, comercio ? { comercio } : {});
+      const gasto = await GastosService.getUltimoGasto(telegramId, comercio ? { comercio } : {});
       if (!gasto || typeof gasto.id !== 'number') {
         await ctx.reply('No encontré un gasto para mostrar con esos filtros.');
         return true;
       }
       await ctx.reply(
-        `Gasto #${gasto.id}\nDescripción: ${gasto.descripcion ?? '-'}\nMonto: $${gasto.monto ?? 0}\nFecha: ${formatearFechaCorta(gasto.fecha)}\nCategoría: ${gasto.categoria?.nombre ?? '-'}`,
+        `Gasto #${gasto.id}\nDescripción: ${gasto.descripcion ?? '-'}\nMonto: $${gasto.monto ?? 0}\nFecha: ${formatearFechaCorta(gasto.fecha ?? undefined)}\nCategoría: ${gasto.categoria?.nombre ?? '-'}`,
       );
-      (ctx.session as any).pendingShow = { gastoId: gasto.id, gasto };
+      (ctx.session).pendingShow = { gastoId: gasto.id, gasto };
       return true;
     } catch (error) {
       await ctx.reply(mensajeDeError(error));

@@ -1,5 +1,5 @@
 import type { GastoAnalizado } from '../services/ia.service.js';
-import type { CampoEditable } from '../views/acciones.js';
+import type { CampoEditable, GastoAccion } from '../views/acciones.js';
 
 export type PasoAutenticacion = 'AWAITING_EMAIL' | 'AWAITING_PASSWORD';
 
@@ -18,9 +18,9 @@ export interface SessionData {
   recurringStep?: 'ASK_IF_RECURRING' | 'ASK_FREQUENCY' | 'ASK_DAY' | 'CONFIRM_AFTER_RECURRING';
   pendingRecurring?: GastoAnalizado & { telegramId?: string; quiereRecurrente?: boolean };
   pendingDelete?: { gastoId: number; monto: number; descripcion: string; fecha: string; categoria?: string };
-  pendingEdit?: { gastoId: number; gasto: Record<string, unknown>; campoPendiente?: string };
+  pendingEdit?: { gastoId: number; gasto: GastoAccion; campoPendiente?: string };
   pendingCampoEdit?: { gastoId: number; campo: CampoEditable };
-  pendingShow?: { gastoId: number; gasto: Record<string, unknown> };
+  pendingShow?: { gastoId: number; gasto: GastoAccion };
   /** Gasto con pista de recurrencia esperando respuesta antes de confirmación */
   pendingRecurringCheck?: GastoAnalizado & { origen?: 'texto' | 'imagen' };
 }

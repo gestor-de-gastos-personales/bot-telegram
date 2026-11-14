@@ -40,7 +40,7 @@ describe('sesión', () => {
         descripcion: 'Coto',
         fecha: '2026-10-01',
       },
-      pendingEdit: { gastoId: 1, gasto: {} },
+      pendingEdit: { gastoId: 1, gasto: { id: 1, monto: 100 } },
       pendingRecurringCheck: gastoAnalizado(),
     };
 

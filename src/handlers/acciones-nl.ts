@@ -208,7 +208,7 @@ export async function manejarEdicionNatural(
 
     ctx.session.pendingEdit = {
       gastoId: encontrado.id,
-      gasto: encontrado as unknown as Record<string, unknown>,
+      gasto: encontrado,
     };
 
     await ctx.reply(construirTextoDetalleModificar(encontrado), {
