@@ -166,7 +166,11 @@ export class GastosService {
     }
   }
 
-  static async updateGasto(gastoId: number, telegramId: string, datos: Record<string, unknown>) {
+  static async updateGasto(
+    gastoId: number,
+    telegramId: string,
+    datos: Record<string, unknown>,
+  ): Promise<Partial<GastoEncontrado>> {
     const response = await fetch(
       `${apiGastos()}/gastos/${gastoId}?telegramId=${encodeURIComponent(telegramId)}`,
       {
@@ -179,7 +183,7 @@ export class GastosService {
       throw new Error(`api-gastos respondió ${response.status}`);
     }
     try {
-      return await response.json();
+      return (await response.json()) as Partial<GastoEncontrado>;
     } catch {
       return {};
     }
