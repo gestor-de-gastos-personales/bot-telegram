@@ -964,6 +964,34 @@ async function registrarComandos(username: string): Promise<void> {
   ]);
 }
 
+const REINTENTO_POLLING_MS = 35_000;
+
+/**
+ * Arranca el polling y, si Telegram corta la conexión (por ejemplo, 409 por
+ * otra instancia usando el mismo token), espera y reintenta sin que el
+ * proceso muera. Así Docker no entra en un loop de reinicios.
+ */
+async function iniciarPolling(): Promise<void> {
+  while (true) {
+    try {
+      await bot.start({
+        onStart: (info) => {
+          registrarComandos(info.username).catch((error) =>
+            logger.warn({ error }, 'No se pudieron registrar los comandos'),
+          );
+        },
+      });
+      return;
+    } catch (error) {
+      logger.error(
+        { detalle: mensajeDeError(error) },
+        `El polling del bot se detuvo; reintentando en ${REINTENTO_POLLING_MS / 1000}s`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, REINTENTO_POLLING_MS));
+    }
+  }
+}
+
 if (process.env.BOT_AUTOSTART !== '0') {
   bot.catch((error) => {
     logger.error(
@@ -972,18 +1000,5 @@ if (process.env.BOT_AUTOSTART !== '0') {
     );
   });
 
-  bot
-    .start({
-      onStart: (info) => {
-        registrarComandos(info.username).catch((error) =>
-          logger.warn({ error }, 'No se pudieron registrar los comandos'),
-        );
-      },
-    })
-    .catch((error) => {
-      logger.error(
-        { detalle: mensajeDeError(error) },
-        'El polling del bot se detuvo por un error',
-      );
-    });
+  void iniciarPolling();
 }
